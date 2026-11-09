@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  preview: {
+    allowedHosts: ["triplex-fx.onrender.com"],
+  },
   build: {
     rollupOptions: {
       input: {
