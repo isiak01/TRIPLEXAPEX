@@ -10,6 +10,7 @@ import {
 import {
   collection,
   collectionGroup,
+  deleteDoc,
   doc,
   getDoc,
   getFirestore,
@@ -225,6 +226,11 @@ export function subscribeNotifications(
 export async function markNotificationRead(uid: string, notificationId: string): Promise<void> {
   if (!db) throw new Error("Firebase is not configured.");
   await updateDoc(doc(db, "users", uid, "notifications", notificationId), { readAt: serverTimestamp() });
+}
+
+export async function deleteNotification(uid: string, notificationId: string): Promise<void> {
+  if (!db) throw new Error("Firebase is not configured.");
+  await deleteDoc(doc(db, "users", uid, "notifications", notificationId));
 }
 
 export function subscribePendingReceipts(

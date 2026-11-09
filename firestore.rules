@@ -22,11 +22,12 @@ service cloud.firestore {
 
       match /notifications/{notificationId} {
         allow get, list: if isOwner(uid) || isAdmin();
-        allow create, delete: if false;
+        allow create: if false;
         allow update: if isOwner(uid)
           && resource.data.readAt == null
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
           && request.resource.data.readAt is timestamp;
+        allow delete: if isOwner(uid);
       }
 
       match /receipts/{receiptId} {
@@ -38,6 +39,10 @@ service cloud.firestore {
         allow get, list: if isOwner(uid) || isAdmin();
         allow create, update, delete: if false;
       }
+    }
+
+    match /{path=**}/receipts/{receiptId} {
+      allow list: if isAdmin() && resource.data.status == 'pending';
     }
 
     match /usernames/{username} {

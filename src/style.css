@@ -204,14 +204,22 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .notification-panel > header strong { font-family: Manrope,sans-serif; font-size: .9rem; }
 .notification-panel > header span { color: var(--muted); font-size: .7rem; }
 .notification-list { max-height: min(62vh,475px); overflow-y: auto; overscroll-behavior: contain; }
-.notification-item { display: flex; align-items: flex-start; gap: 11px; width: 100%; padding: 14px 16px; color: var(--ink); background: transparent; border: 0; border-bottom: 1px solid var(--line); cursor: pointer; text-align: left; }
+.notification-item { display: flex; align-items: flex-start; gap: 11px; width: 100%; padding: 14px 16px; color: var(--ink); background: transparent; border-bottom: 1px solid var(--line); text-align: left; }
 .notification-item:hover, .notification-item.is-unread { background: color-mix(in srgb,var(--green-soft) 46%,var(--surface)); }
-.notification-item > span:last-child { display: grid; flex: 1; gap: 4px; min-width: 0; }
+.notification-item-content { display: grid; flex: 1; gap: 4px; min-width: 0; }
 .notification-item strong { font-size: .76rem; }
 .notification-item small { color: var(--muted); font-size: .71rem; line-height: 1.45; }
 .notification-item time { color: var(--muted); font-size: .65rem; }
 .notification-item-dot { width: 8px; height: 8px; flex: 0 0 auto; margin-top: 4px; background: transparent; border-radius: 50%; }
 .notification-item.is-unread .notification-item-dot { background: #d72f3c; }
+.notification-item-actions { display: flex; align-items: center; gap: 10px; min-height: 26px; }
+.notification-action { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 3px 6px; color: var(--green-dark); background: transparent; border: 0; border-radius: 5px; cursor: pointer; font-size: .66rem; font-weight: 700; }
+.notification-action:hover:not(:disabled) { background: var(--green-soft); }
+.notification-action:disabled { cursor: wait; opacity: .55; }
+.notification-delete { width: 28px; margin-left: auto; color: var(--red); }
+.notification-delete:hover:not(:disabled) { background: var(--red-soft); }
+.notification-delete svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.notification-read-state { color: var(--muted); font-size: .65rem; }
 .notification-empty { margin: 0; padding: 24px 18px; color: var(--muted); font-size: .78rem; text-align: center; }
 .nav-count { display: inline-grid; min-width: 19px; height: 19px; margin-left: auto; padding: 0 5px; color: white; background: #d72f3c; border-radius: 999px; font-size: .62rem; font-weight: 800; place-items: center; }
 .deposit-overlay { align-items: end; padding: 0; }

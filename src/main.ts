@@ -3,6 +3,7 @@ import type { User } from "firebase/auth";
 import {
   claimUsername,
   apiRequest,
+  deleteNotification,
   ensureUserRole,
   findUsername,
   getAccountRole,
@@ -221,10 +222,15 @@ function notificationItemsMarkup() {
   if (!currentUser) return '<p class="notification-empty">Log in to see your notifications.</p>';
   if (!notifications.length) return '<p class="notification-empty">You have no notifications yet.</p>';
   return notifications.map((item) => `
-    <button class="notification-item ${item.readAt ? "" : "is-unread"}" type="button" data-notification-id="${escapeHtml(item.id)}">
+    <article class="notification-item ${item.readAt ? "" : "is-unread"}">
       <span class="notification-item-dot" aria-hidden="true"></span>
-      <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.message)}</small><time>${item.createdAt ? escapeHtml(item.createdAt.toDate().toLocaleString()) : "Just now"}</time></span>
-    </button>`).join("");
+      <div class="notification-item-content"><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.message)}</small><time>${item.createdAt ? escapeHtml(item.createdAt.toDate().toLocaleString()) : "Just now"}</time>
+        <div class="notification-item-actions">
+          ${item.readAt ? '<span class="notification-read-state">Read</span>' : `<button class="notification-action notification-mark-read" type="button" data-notification-read="${escapeHtml(item.id)}">Mark as read</button>`}
+          <button class="notification-action notification-delete" type="button" data-notification-delete="${escapeHtml(item.id)}" aria-label="Delete notification: ${escapeHtml(item.title)}" title="Delete notification"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button>
+        </div>
+      </div>
+    </article>`).join("");
 }
 
 function pageTitle(activePage: string) {
@@ -283,17 +289,31 @@ function bindNotificationEvents() {
       if (opening && !currentUser) showNotice("Sign in to view notifications", "Your account notifications will appear here after you log in.");
     });
   });
-  document.querySelectorAll<HTMLButtonElement>(".notification-item[data-notification-id]").forEach((button) => {
+  document.querySelectorAll<HTMLButtonElement>("[data-notification-read]").forEach((button) => {
     if (button.dataset.bound === "true") return;
     button.dataset.bound = "true";
     button.addEventListener("click", async () => {
-      if (!currentUser) return;
-      const item = notifications.find((notification) => notification.id === button.dataset.notificationId);
-      if (!item || item.readAt) return;
+      if (!currentUser || button.disabled) return;
+      button.disabled = true;
       try {
-        await markNotificationRead(currentUser.uid, item.id);
+        await markNotificationRead(currentUser.uid, button.dataset.notificationRead || "");
       } catch (error) {
-        showNotice("Could not update notification", errorMessage(error));
+        button.disabled = false;
+        showNotice("Could not mark notification as read", errorMessage(error));
+      }
+    });
+  });
+  document.querySelectorAll<HTMLButtonElement>("[data-notification-delete]").forEach((button) => {
+    if (button.dataset.bound === "true") return;
+    button.dataset.bound = "true";
+    button.addEventListener("click", async () => {
+      if (!currentUser || button.disabled) return;
+      button.disabled = true;
+      try {
+        await deleteNotification(currentUser.uid, button.dataset.notificationDelete || "");
+      } catch (error) {
+        button.disabled = false;
+        showNotice("Could not delete notification", errorMessage(error));
       }
     });
   });
@@ -448,14 +468,14 @@ function renderProfitPage() {
   frame(`
     <p class="eyebrow">Training illustration</p>
     <h1>Profit projection</h1>
-    <p class="intro">See your account balance alongside a clearly labeled example projection. No live trading prices or automatic earnings are connected.</p>
+    <p class="intro">Track your available account balance and follow the five-cycle training projection.</p>
     <section class="profit-terminal" aria-label="Account balance and hypothetical projection">
       <div class="profit-terminal-head"><span class="profit-market-tag"><i></i> ACCOUNT BALANCE</span><span class="profit-illustration-tag">HYPOTHETICAL EXAMPLE</span></div>
       <div class="profit-terminal-grid">
         <div class="profit-equity"><span>Available balance</span><strong id="profit-balance">${formatCurrency(currentUser ? balanceCents : 0)} <small>USD</small></strong><p>${currentUser ? "Current credited balance" : "Log in to view your account balance"}</p></div>
         <div class="profit-projected"><span>Example final amount</span><strong>${formatUsdt(finalCents)}</strong><p>After 5 hypothetical cycles · 15 days</p></div>
       </div>
-      <div class="profit-chart-heading"><span>ILLUSTRATIVE NET AMOUNT</span><span>Not a live price feed</span></div>
+      <div class="profit-chart-heading"><span>ILLUSTRATIVE NET AMOUNT</span></div>
       <svg class="profit-chart" viewBox="0 0 400 150" role="img" aria-label="Hypothetical five-cycle projection rising from 14 to 99.48 USDT">
         <defs><linearGradient id="profit-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#20c978" stop-opacity=".28"/><stop offset="1" stop-color="#20c978" stop-opacity="0"/></linearGradient></defs>
         <path class="profit-chart-area" d="${areaPath}"/>
@@ -504,7 +524,6 @@ function renderAssistantPage() {
             "Which network should I choose?",
             "What if I send to the wrong network?",
             "How long does deposit review take?",
-            "How does the profit projection work?",
             "How do actual earnings get added?",
             "Can I withdraw?",
             "How do I contact support?",
@@ -604,13 +623,16 @@ function renderAssistantPage() {
       return { text: "Sign in, choose Deposit, select the asset and one of its available networks, then copy the displayed address. Enter the USD amount, optionally upload a JPG, PNG, WebP, or PDF receipt, confirm the payment is legitimate, and submit the request. The balance changes only after an administrator approves it. Never send crypto to an address from chat.", link: { label: "Go to dashboard", href: "index.html" } };
     }
     if (/\b(review|pending|how long|when.*(balance|deposit)|approve|approved)\b/.test(normalized)) {
-      return { text: "After you submit a deposit request, it appears as pending. The site says reviews can take up to 24 hours. An administrator must approve the request before the credited USD balance changes. I can’t see your request status; use the in-app notifications or contact support if it is delayed.", link: { label: "Contact support", href: "contact.html" } };
+      return { text: "Deposit reviews usually take about 24 hours. If your request has not been reviewed after 24 hours, please contact customer support. You’ll receive an in-app notification when its status changes. An approved deposit is then added to your USD balance.", link: { label: "Contact support", href: "contact.html" } };
+    }
+    if (/\b(actual )?earnings?\b|\b(per|each|every) cycle\b/.test(normalized)) {
+      return { text: "The cycle schedule uses 3-day periods, not hourly additions. Each listed cycle applies the 1.8× multiplier to its opening amount, then subtracts the 4 USDT service fee. For example, 10 USDT calculates to 18 USDT before the fee, leaving 14 USDT net for the next cycle’s opening amount. Check your account activity and notifications for confirmed balance updates.", link: { label: "View cycle amounts", href: "profit.html" } };
     }
     if (/\b(fee|charge|service charge|cost)\b/.test(normalized)) {
-      return { text: "The profit projection page shows an assumed 4 USDT fee per cycle as part of a hypothetical example. The example does not charge or deduct that fee from your account. Confirm any actual fees and terms with Triplex support before sending funds.", link: { label: "View the example projection", href: "profit.html" } };
+      return { text: "The profit projection page shows a 4 USDT fee per cycle as part of a hypothetical example. ", link: { label: "View the example projection", href: "profit.html" } };
     }
     if (/\b(profit|earning|growth|return|1\.8|projection|progress)\b/.test(normalized)) {
-      return { text: "The progress page contains a hypothetical 5-cycle example based on the figures supplied for the site. It is not a forecast or guaranteed return. Triplex does not currently execute trades or automatically credit hourly/daily earnings, and this example never changes your actual balance.", link: { label: "View the example projection", href: "profit.html" } };
+      return { text: "The Profit progress page lays out five 3-day cycles. Each cycle applies the 1.8× multiplier to its opening amount, then subtracts the 4 USDT service fee; the net amount becomes the next cycle’s opening amount. The table shows each cycle’s opening amount, calculation, fee, and net amount.", link: { label: "View cycle amounts", href: "profit.html" } };
     }
     if (/\b(withdraw|cash ?out)\b/.test(normalized)) {
       return { text: "The withdrawal workflow is not available in the website yet. The Withdraw button does not submit a request. Contact support for current information, and don’t share passwords, PINs, or private keys.", link: { label: "Contact support", href: "contact.html" } };
@@ -773,7 +795,7 @@ async function showDepositFlow() {
       <label class="deposit-label" for="deposit-address">Deposit address</label>
       <div class="deposit-address"><code id="deposit-address">${escapeHtml(address)}</code><button id="copy-address" type="button">Copy</button></div>
       <label class="deposit-label" for="deposit-amount">Amount to deposit (USD)</label>
-      <div class="amount-field"><span>$</span><input id="deposit-amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0.00" required></div>
+      <div class="amount-field"><span>$</span><input id="deposit-amount" type="number" min="10.00" step="0.01" inputmode="decimal" placeholder="10.00" required></div>
       <label class="deposit-label" for="receipt-file">Payment receipt <span>(optional)</span></label>
       <input class="receipt-file" id="receipt-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
       <p class="receipt-file-note" id="receipt-file-note">Upload a screenshot or PDF, up to 10 MB.</p>
@@ -828,8 +850,8 @@ async function showDepositFlow() {
     const completeButton = content.querySelector<HTMLButtonElement>("#deposit-complete")!;
     completeButton.addEventListener("click", () => {
       const amountCents = amountToCents(content.querySelector<HTMLInputElement>("#deposit-amount")!.value);
-      if (!amountCents) {
-        showNotice("Enter a valid amount", "Enter a deposit amount greater than $0.00.");
+      if (amountCents < 1_000) {
+        showNotice("Minimum deposit is $10.00", "Enter a deposit amount of at least $10.00.");
         return;
       }
       if (fileInput.files?.length && !uploadedReceipt) {

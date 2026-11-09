@@ -419,6 +419,7 @@ async function routeApi(request, response, url, corsHeaders) {
     const network = typeof body.network === "string" ? body.network.toUpperCase() : "";
     if (!getNetwork(asset, network) || !getWallet(asset, network)) fail(400, "This deposit network is not available yet.");
     if (!validateAmount(body.amountCents)) fail(400, "Enter a valid deposit amount.");
+    if (body.amountCents < 1_000) fail(400, "The minimum deposit is $10.00.");
     if (typeof body.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.requestId)) fail(400, "Invalid deposit request ID.");
 
     let receipt = null;
@@ -497,7 +498,20 @@ async function routeApi(request, response, url, corsHeaders) {
   }
   if (pathname === "/api/admin/receipts" && method === "GET") {
     await authenticate(request, { adminOnly: true });
-    const result = await db.collectionGroup("receipts").where("status", "==", "pending").limit(100).get();
+    let result;
+    try {
+      result = await db.collectionGroup("receipts").where("status", "==", "pending").limit(100).get();
+    } catch (error) {
+      console.error("Could not load pending deposit requests from Firestore.", error);
+      const code = error?.code;
+      if (code === 9 || code === "failed-precondition") {
+        fail(503, "Firestore needs a collection-group index for receipts.status. Create the required index, then retry.");
+      }
+      if (code === 7 || code === "permission-denied" || code === "PERMISSION_DENIED") {
+        fail(503, "The Firebase server account cannot read deposit requests. Check its Firestore IAM permissions.");
+      }
+      throw error;
+    }
     const receipts = result.docs.map((snapshot) => ({
       id: snapshot.id,
       uid: snapshot.ref.parent.parent.id,
