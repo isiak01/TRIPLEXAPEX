@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Triplex",
+  "short_name": "Triplex",
+  "description": "Your Triplex account dashboard.",
+  "start_url": "/index.html",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f7f4",
+  "theme_color": "#078b49",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

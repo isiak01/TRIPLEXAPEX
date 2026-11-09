@@ -37,11 +37,38 @@ let currentUser: User | null = null;
 let currentUsername: string | null = null;
 let currentRole: "user" | "admin" = "user";
 let balanceCents = 0;
+let balanceVisible = true;
 let lookupTimer = 0;
 let lookupVersion = 0;
 
 const themeKey = "triplex-theme";
+const installDismissedKey = "triplex-install-dismissed";
 document.documentElement.dataset.theme = localStorage.getItem(themeKey) === "dark" ? "dark" : "light";
+
+interface InstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+}
+
+let deferredInstallPrompt: InstallPromptEvent | null = null;
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event as InstallPromptEvent;
+  renderInstallPrompt();
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  document.querySelector("#install-prompt")?.remove();
+  localStorage.removeItem(installDismissedKey);
+});
+
+if ("serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
+    console.error("Could not register the Triplex service worker.", error);
+  });
+}
 
 function showBoot(message = "Triplex is loading") {
   appRoot.innerHTML = `
@@ -88,7 +115,6 @@ function frame(content: string, activePage: string, username: string | null) {
           ${currentUser
             ? '<button class="side-link" id="signout-button" type="button"><span class="nav-icon" aria-hidden="true">↪</span>Sign out</button>'
             : '<a class="side-link" href="login.html"><span class="nav-icon" aria-hidden="true">↪</span>Log in</a>'}
-          <div class="sidebar-note"><strong>Triplex preview</strong>Account actions are not connected to payment processing.</div>
         </div>
       </aside>
       <main class="main">
@@ -96,7 +122,6 @@ function frame(content: string, activePage: string, username: string | null) {
           <div class="breadcrumb">Workspace <span aria-hidden="true">/</span> <strong>${activePage === "contact" ? "Contact" : activePage === "admin" ? "Admin" : "Overview"}</strong></div>
           <div class="profile">
             ${themeButton()}
-            <span class="preview-status">Preview mode</span>
             <span class="avatar" aria-hidden="true">${username ? escapeHtml(username.slice(0, 2).toUpperCase()) : "TP"}</span>
             <span class="profile-name">${signedInName}</span>
           </div>
@@ -160,7 +185,7 @@ function bindThemeEvents() {
 }
 
 function renderDashboard() {
-  const balance = currentUser ? formatCurrency(balanceCents) : "$0.00";
+  const balance = formatCurrency(currentUser ? balanceCents : 0);
   const authActions = currentUser
     ? ""
     : `<div class="guest-actions"><a class="button button-primary" href="signup.html">Create account</a><a class="button button-secondary" href="login.html">Log in</a></div>`;
@@ -171,9 +196,9 @@ function renderDashboard() {
     <section class="balance-card" aria-labelledby="balance-heading">
       <div class="balance-top">
         <div><p class="balance-label" id="balance-heading">Total balance</p><span class="balance-caption">${currentUser ? "Available balance" : "Sign in to view your account"}</span></div>
-        <button class="visibility-button" id="visibility-toggle" type="button" aria-label="Hide balance"><svg class="visibility-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c5.2 0 8.7 4.1 9.5 6-.3.8-1 1.8-2 2.8M6.2 6.2C3.9 7.6 2.8 9.8 2.5 11c.8 1.9 4.3 6 9.5 6 1.1 0 2.1-.2 3-.5"/></svg><span>Hide</span></button>
+        <button class="visibility-button" id="visibility-toggle" type="button" aria-label="${balanceVisible ? "Hide" : "Show"} balance"><svg class="visibility-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c5.2 0 8.7 4.1 9.5 6-.3.8-1 1.8-2 2.8M6.2 6.2C3.9 7.6 2.8 9.8 2.5 11c.8 1.9 4.3 6 9.5 6 1.1 0 2.1-.2 3-.5"/></svg><span>${balanceVisible ? "Hide" : "Show"}</span></button>
       </div>
-      <div class="balance-value-row"><p class="balance-value" id="balance-value">${balance}</p><span class="currency">USD</span></div>
+      <div class="balance-value-row"><p class="balance-value" id="balance-value">${balanceVisible ? balance : "••••••"}</p><span class="currency">USD</span></div>
       <div class="balance-footer"><span class="balance-foot">${currentUser ? "Account balance" : "No account connected"}</span><span class="balance-period">USD · US Dollar</span></div>
     </section>
     ${authActions}
@@ -188,7 +213,8 @@ function renderDashboard() {
     </section>`, "dashboard", currentUsername);
 
   document.querySelector<HTMLButtonElement>("#visibility-toggle")?.addEventListener("click", () => {
-    showNotice("Balance visibility", "Balance hiding is a preview control and is not connected yet.");
+    balanceVisible = !balanceVisible;
+    renderDashboard();
   });
   document.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -196,7 +222,7 @@ function renderDashboard() {
       if (action === "transfer") {
         showTransferCard();
       } else {
-        showNotice(`${capitalize(action ?? "Action")} unavailable`, "This account action is a design preview and is not connected to any payment service.");
+        showNotice(`${capitalize(action ?? "Action")} unavailable`, "Please contact support for assistance.");
       }
     });
   });
@@ -218,7 +244,7 @@ function renderAuth(kind: "login" | "signup") {
           <span>Continue with Google</span>
         </button>
         <p class="auth-switch">${signup ? 'Already have an account? <a href="login.html">Log in</a>' : 'New to Triplex? <a href="signup.html">Create an account</a>'}</p>
-        <p class="auth-legal">By continuing, you agree to use this preview responsibly. No payment or investment services are connected.</p>
+        <p class="auth-legal">Your account is protected by Google sign-in and Firebase authentication.</p>
       </section>
       <span class="auth-footer">TRIPLEX · SECURE ACCOUNT ACCESS</span>
     </main>`;
@@ -380,9 +406,9 @@ function showTransferCard() {
     <section class="notice-card transfer-card" role="dialog" aria-modal="true" aria-labelledby="transfer-title">
       <button class="notice-close" type="button" aria-label="Dismiss transfer panel">×</button>
       <img class="notice-logo" src="${logoUrl}" alt="Triplex">
-      <p class="eyebrow">Transfer preview</p>
+      <p class="eyebrow">Transfer</p>
       <h2 id="transfer-title">Send to a Triplex user</h2>
-      <p class="transfer-explainer">Find a recipient and enter an amount. Transfers are not enabled in this preview.</p>
+      <p class="transfer-explainer">Check the recipient username and amount carefully before continuing.</p>
       ${currentUser ? "" : '<p class="config-note"><strong>Sign in required</strong><span>Log in to check a recipient.</span></p>'}
       <form id="transfer-form">
         <label for="recipient-input">Recipient username</label>
@@ -391,7 +417,6 @@ function showTransferCard() {
         <div class="amount-field"><span aria-hidden="true">$</span><input id="transfer-amount" name="amount" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="0.00" required></div>
         <button class="button button-primary transfer-submit" id="transfer-submit" type="submit" disabled>Continue</button>
       </form>
-      <p class="auth-legal">No funds will be moved. Secure server-side transfer processing is not set up.</p>
     </section>`;
 
   const close = () => overlay.remove();
@@ -446,7 +471,7 @@ function showTransferCard() {
     validate();
     if (submit.disabled) return;
     close();
-    showNotice("Transfers are not enabled", "The recipient was found, but no money was moved. A trusted server-side transfer service is required before transfers can be enabled.");
+    showNotice("Transfer unavailable", "This transfer could not be completed. Please contact support.");
   });
   overlay.querySelector<HTMLButtonElement>(".notice-close")!.focus();
 }
@@ -467,7 +492,10 @@ function errorMessage(error: unknown) {
 }
 
 function formatCurrency(cents: number) {
-  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "USD" }).format(cents / 100);
+  return `$${new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(cents / 100)}`;
 }
 
 function capitalize(value: string) {
@@ -533,6 +561,7 @@ function renderLoadingPage(user: User | null) {
 }
 
 showBoot(page === "loading" ? "Triplex is loading" : "Checking your secure connection");
+renderInstallPrompt();
 if (page === "loading") renderLoadingPage(null);
 watchAuth(
   (user) => {
@@ -543,3 +572,46 @@ watchAuth(
     showNotice("Could not verify your session", error.message);
   },
 );
+
+function renderInstallPrompt() {
+  if (window.matchMedia("(display-mode: standalone)").matches || document.querySelector("#install-prompt")) return;
+  const dismissedAt = Number(localStorage.getItem(installDismissedKey));
+  if (dismissedAt && Date.now() - dismissedAt < 30 * 24 * 60 * 60 * 1000) return;
+
+  const prompt = document.createElement("aside");
+  prompt.id = "install-prompt";
+  prompt.className = "install-prompt";
+  prompt.setAttribute("aria-label", "Install Triplex");
+  prompt.innerHTML = `
+    <img src="${logoUrl}" alt="" class="install-prompt-logo">
+    <div class="install-prompt-copy"><strong>Install Triplex</strong><span>Keep your account one tap away.</span></div>
+    <button class="button button-primary install-button" id="install-app" type="button">Install</button>
+    <button class="install-dismiss" id="dismiss-install" type="button" aria-label="Dismiss install prompt">×</button>`;
+  document.body.append(prompt);
+
+  prompt.querySelector<HTMLButtonElement>("#dismiss-install")?.addEventListener("click", () => {
+    localStorage.setItem(installDismissedKey, String(Date.now()));
+    prompt.remove();
+  });
+  prompt.querySelector<HTMLButtonElement>("#install-app")?.addEventListener("click", async () => {
+    if (!deferredInstallPrompt) {
+      const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      showNotice(
+        "Install Triplex",
+        isIos
+          ? "Tap the Share button in Safari, then choose Add to Home Screen."
+          : "Open your browser menu and choose Install app or Add to Home screen.",
+      );
+      return;
+    }
+
+    try {
+      await deferredInstallPrompt.prompt();
+      const choice = await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      if (choice.outcome === "accepted") prompt.remove();
+    } catch (error) {
+      showNotice("Could not start installation", errorMessage(error));
+    }
+  });
+}

@@ -66,8 +66,6 @@ a { color: inherit; }
 .profile { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-left: auto; color: var(--ink); font-size: .82rem; font-weight: 600; }
 .profile-name { max-width: 155px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .avatar { width: 34px; height: 34px; }
-.preview-status { display: inline-flex; align-items: center; gap: 8px; padding: 7px 10px; color: var(--muted); background: var(--page); border: 1px solid var(--line); border-radius: 999px; font-size: .7rem; font-weight: 650; }
-.preview-status::before { width: 7px; height: 7px; background: var(--gold); border-radius: 50%; content: ""; box-shadow: 0 0 0 3px rgba(201,168,78,.13); }
 .theme-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 11px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; cursor: pointer; font-size: .77rem; font-weight: 650; transition: background .18s ease, transform .18s ease, border-color .18s ease; }
 .theme-toggle:hover { transform: translateY(-1px); border-color: var(--green); background: var(--green-soft); }
 .theme-toggle > span:first-child { font-size: 1rem; }
@@ -181,6 +179,14 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .notice-mark { display: grid; width: 32px; height: 32px; margin: 0 auto 11px; color: var(--green-dark); background: var(--green-soft); border-radius: 50%; font-family: Georgia,serif; font-size: 1rem; font-weight: 700; place-items: center; }
 .notice-card h2 { margin: 0 0 8px; font-size: 1.18rem; letter-spacing: -.035em; }
 .notice-card > p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.65; }
+.install-prompt { position: fixed; z-index: 80; right: 24px; bottom: 92px; display: flex; align-items: center; gap: 12px; width: min(390px,calc(100vw - 32px)); padding: 14px 45px 14px 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 15px; box-shadow: 0 16px 48px rgba(0,0,0,.18); animation: card-pop .24s cubic-bezier(.2,.8,.2,1) both; }
+.install-prompt-logo { flex: 0 0 auto; width: 42px; height: 42px; object-fit: contain; }
+.install-prompt-copy { display: grid; flex: 1; gap: 3px; min-width: 0; }
+.install-prompt-copy strong { font-size: .84rem; }
+.install-prompt-copy span { color: var(--muted); font-size: .72rem; line-height: 1.35; }
+.install-button { flex: 0 0 auto; min-height: 38px; padding: 0 13px; font-size: .76rem; }
+.install-dismiss { position: absolute; top: 8px; right: 8px; display: grid; width: 28px; height: 28px; padding: 0; color: var(--muted); background: transparent; border: 0; border-radius: 50%; cursor: pointer; font-size: 1.2rem; place-items: center; }
+.install-dismiss:hover { color: var(--ink); background: var(--page); }
 .transfer-card { width: min(100%, 440px); text-align: left; }
 .transfer-card .notice-logo { margin-left: 0; }
 .transfer-card .eyebrow { margin-bottom: 6px; }
@@ -229,11 +235,14 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
   .actions { gap: 8px; }
   .action-button { flex-direction: column; gap: 6px; min-height: 72px; padding: 8px 4px; font-size: .73rem; }
   .balance-footer { flex-wrap: wrap; }
-  .preview-status { padding: 6px 8px; font-size: .65rem; }
   .contact-card { align-items: flex-start; flex-wrap: wrap; padding: 19px; }
   .contact-card > div { flex: 1 1 calc(100% - 60px); }
   .contact-card .button { width: 100%; }
   .whatsapp-float { right: 16px; bottom: 17px; width: 51px; height: 51px; }
+  .install-prompt { right: 12px; bottom: 78px; gap: 9px; padding-left: 11px; }
+  .install-prompt-logo { width: 36px; height: 36px; }
+  .install-prompt-copy span { font-size: .68rem; }
+  .install-button { padding: 0 10px; }
   .auth-back { top: 18px; left: 18px; }
   .auth-page { padding: 70px 16px 60px; }
   .auth-card { padding: 26px 22px; }
