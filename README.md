@@ -27,4 +27,6 @@ The client Firebase API key identifies the Firebase project; it is not a server 
 ## Render static site
 
 Create a Render Static Site from this repository. The included [`render.yaml`](./render.yaml) sets `npm ci && npm run build` and publishes `dist`. Add the four `VITE_FIREBASE_*` values from `.env.example` as Render environment variables before building; Vite embeds these public client settings in the static bundle. Add the Render hostname to Firebase Authentication's authorized domains. Never put service-account credentials or private keys in Vite environment variables.
+
+If deploying as a Render Web Service instead, use `npm run build` as the build command and `npm start` as the start command. The start script serves the built `dist` files on Render's `PORT`.
 # TRIPLEX
