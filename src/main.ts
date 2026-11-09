@@ -512,10 +512,10 @@ function renderAssistantPage() {
     <section class="assistant-shell" aria-label="Triplex help chat">
       <header class="assistant-header">
         <span class="assistant-mascot" data-mascot aria-hidden="true"><span>✦</span></span>
-        <div class="assistant-heading"><strong>TRIPLEX AI ASSISTANT</strong><span>Prepared site-help replies · not live AI</span></div>
+        <div class="assistant-heading"><strong>TRIPLEX AI ASSISTANT</strong><span>Triplex website help · ready to assist</span></div>
         <button class="assistant-reset" id="assistant-reset" type="button">New chat</button>
       </header>
-      <div class="assistant-welcome"><span class="assistant-welcome-kicker">WELCOME TO TRIPLEX</span><h2>How can I help?</h2><p>I can explain the deposit flow, account activity, and what the example projection means. I can’t view your account or verify a payment.</p></div>
+      <div class="assistant-welcome"><span class="assistant-welcome-kicker">WELCOME TO TRIPLEX</span><h2>How can I help?</h2><p>Get clear guidance on deposits, network choices, account activity, and the cycle breakdown. For account-specific payment updates, check your notifications or contact support.</p></div>
       <details class="assistant-suggestions" open>
         <summary>View suggestions</summary>
         <div class="assistant-suggestion-list">
@@ -585,7 +585,7 @@ function renderAssistantPage() {
 
   const greeting = (): AssistantMessage => ({
     sender: "assistant",
-    text: "Hi! I’m the Triplex website help assistant. I can answer common questions using the features shown here, but I’m not live AI and can’t see account or payment records. What would you like to know?",
+    text: "Hi! Welcome to Triplex. I can guide you through deposits, supported networks, account activity, and the cycle breakdown. What can I help you with today?",
     time: new Date(),
   });
   appendMessage(greeting());
@@ -602,7 +602,7 @@ function renderAssistantPage() {
   const replyTo = (message: string): AssistantReply => {
     const normalized = message.toLowerCase();
     if (/\b(hi|hello|hey|good morning|good afternoon)\b/.test(normalized)) {
-      return { text: "Hello! I can help explain Triplex’s deposit, account activity, example projection, transfers, and support options." };
+      return { text: "Hello! I’m happy to help with deposits, network choices, account activity, cycle calculations, and support." };
     }
     if (/\b(thank|thanks|appreciate)\b/.test(normalized)) {
       return { text: "You’re welcome. If you have another question about the site, feel free to ask." };
@@ -611,42 +611,42 @@ function renderAssistantPage() {
       return { text: "Thanks for visiting Triplex. Contact support if you need help with an account or payment." };
     }
     if (/\b(help|what can you do|what can i ask)\b/.test(normalized)) {
-      return { text: "I can explain how to choose a deposit network, submit a request, read account activity, understand the hypothetical projection, transfer between Triplex accounts, or contact support. I can’t verify payments or provide live market information." };
+      return { text: "I can walk you through making a deposit, choosing the matching network, checking account activity, understanding the 3-day cycle calculations, transferring to another Triplex user, or contacting support. Choose a suggestion below or type your question." };
     }
     if (/\b(wrong network|wrong chain|sent to the wrong|wrong address)\b/.test(normalized)) {
-      return { text: "Crypto sent using the wrong network or to the wrong address may be permanently unrecoverable. Contact Triplex support with the transaction hash and asset/network details; recovery is not guaranteed. Don’t send another payment until the destination is confirmed.", link: { label: "Contact support", href: "contact.html" } };
+      return { text: "Please contact Triplex support as soon as possible and include the asset, network, destination address, and transaction hash. Recovery depends on the network and receiving wallet and cannot be guaranteed, so please don’t send another payment until support has advised you.", link: { label: "Contact customer support", href: "contact.html" } };
     }
     if (/\b(network|chain|which.*(send|choose)|send.*(usdt|usdc|crypto))\b/.test(normalized)) {
-      return { text: "Choose the exact same network in your sending wallet and in the Triplex deposit flow, for the selected asset. Only networks with a configured receiving address are available. Never pick a different network based on a guess, and verify the full address before sending.", link: { label: "Go to dashboard to deposit", href: "index.html" } };
+      return { text: "For a successful deposit, select the same asset and exact same network in Triplex and in your sending wallet. The deposit screen lists the networks currently available for each asset. Check the full destination address and network before confirming your transfer.", link: { label: "Open your dashboard", href: "index.html" } };
     }
     if (/\b(deposit|receipt|proof of payment|payment request)\b/.test(normalized)) {
-      return { text: "Sign in, choose Deposit, select the asset and one of its available networks, then copy the displayed address. Enter the USD amount, optionally upload a JPG, PNG, WebP, or PDF receipt, confirm the payment is legitimate, and submit the request. The balance changes only after an administrator approves it. Never send crypto to an address from chat.", link: { label: "Go to dashboard", href: "index.html" } };
+      return { text: "To deposit, sign in and open Deposit from your dashboard. Choose an asset and an available network, copy the displayed address, and enter at least $10 USD. You can attach a JPG, PNG, WebP, or PDF receipt, then confirm and submit your request. Your USD balance updates after the deposit has been reviewed and approved.", link: { label: "Start a deposit", href: "index.html" } };
     }
     if (/\b(review|pending|how long|when.*(balance|deposit)|approve|approved)\b/.test(normalized)) {
-      return { text: "Deposit reviews usually take about 24 hours. If your request has not been reviewed after 24 hours, please contact customer support. You’ll receive an in-app notification when its status changes. An approved deposit is then added to your USD balance.", link: { label: "Contact support", href: "contact.html" } };
+      return { text: "Deposit reviews usually take about 24 hours. If 24 hours have passed without an update, please message customer support and include your deposit details. You’ll also receive an in-app notification when your request is reviewed; approved deposits are then added to your USD balance.", link: { label: "Contact customer support", href: "contact.html" } };
     }
     if (/\b(actual )?earnings?\b|\b(per|each|every) cycle\b/.test(normalized)) {
-      return { text: "The cycle schedule uses 3-day periods, not hourly additions. Each listed cycle applies the 1.8× multiplier to its opening amount, then subtracts the 4 USDT service fee. For example, 10 USDT calculates to 18 USDT before the fee, leaving 14 USDT net for the next cycle’s opening amount. Check your account activity and notifications for confirmed balance updates.", link: { label: "View cycle amounts", href: "profit.html" } };
+      return { text: "The cycle breakdown is calculated over 3-day periods: the opening amount is multiplied by 1.8, then the 4 USDT service fee is subtracted. For example, 10 USDT calculates to 18 USDT before the fee and 14 USDT net, which becomes the next cycle’s opening amount. Automatic cycle credits are not enabled in the account yet; balances currently update for approved deposits and completed transfers.", link: { label: "See the cycle breakdown", href: "profit.html" } };
     }
     if (/\b(fee|charge|service charge|cost)\b/.test(normalized)) {
-      return { text: "The profit projection page shows a 4 USDT fee per cycle as part of a hypothetical example. ", link: { label: "View the example projection", href: "profit.html" } };
+      return { text: "The cycle breakdown lists a 4 USDT service fee for each cycle and shows how it affects the net amount. For information about fees that apply to your account, contact customer support.", link: { label: "See the cycle breakdown", href: "profit.html" } };
     }
     if (/\b(profit|earning|growth|return|1\.8|projection|progress)\b/.test(normalized)) {
-      return { text: "The Profit progress page lays out five 3-day cycles. Each cycle applies the 1.8× multiplier to its opening amount, then subtracts the 4 USDT service fee; the net amount becomes the next cycle’s opening amount. The table shows each cycle’s opening amount, calculation, fee, and net amount.", link: { label: "View cycle amounts", href: "profit.html" } };
+      return { text: "The Profit progress page shows five 3-day cycles in an easy-to-follow table. Each row lists the opening amount, amount after applying the 1.8× multiplier, 4 USDT service fee, and net amount carried into the next cycle.", link: { label: "View the cycle breakdown", href: "profit.html" } };
     }
     if (/\b(withdraw|cash ?out)\b/.test(normalized)) {
-      return { text: "The withdrawal workflow is not available in the website yet. The Withdraw button does not submit a request. Contact support for current information, and don’t share passwords, PINs, or private keys.", link: { label: "Contact support", href: "contact.html" } };
+      return { text: "For the latest information about withdrawals, please contact Triplex customer support. The website’s withdrawal request process is not available yet.", link: { label: "Contact customer support", href: "contact.html" } };
     }
     if (/\b(transfer|send.*user|username)\b/.test(normalized)) {
-      return { text: "The dashboard includes transfers between Triplex accounts. Enter the recipient’s Triplex username and amount, carefully recheck the username, and confirm. A completed transfer moves the amount between account balances.", link: { label: "Go to dashboard", href: "index.html" } };
+      return { text: "You can transfer funds to another Triplex account from your dashboard. Enter the recipient’s username and amount, double-check the username, then confirm the transfer.", link: { label: "Open your dashboard", href: "index.html" } };
     }
     if (/\b(login|log in|sign in|account|google)\b/.test(normalized)) {
-      return { text: "Triplex sign-in uses Google. Choose Log in or Create account from the dashboard, continue with Google, then choose a username if prompted.", link: { label: "Log in", href: "login.html" } };
+      return { text: "Getting started is simple: choose Log in or Create account, continue securely with Google, and choose a username if prompted.", link: { label: "Continue to log in", href: "login.html" } };
     }
     if (/\b(support|contact|whatsapp|help desk)\b/.test(normalized)) {
-      return { text: "You can contact Triplex support through the verified WhatsApp link on the Contact page. Never send passwords, verification codes, or wallet recovery phrases.", link: { label: "Open Contact", href: "contact.html" } };
+      return { text: "The Contact page has the Triplex customer support WhatsApp link. Include a short description of what you need help with, and never share your password, verification codes, or wallet recovery phrase.", link: { label: "Contact customer support", href: "contact.html" } };
     }
-    return { text: "I don’t have verified information to answer that. I can’t access account records or check a transaction. Please contact Triplex support for help." , link: { label: "Contact support", href: "contact.html" } };
+    return { text: "I want to make sure you get accurate information. I can help with deposits, network selection, deposit reviews, transfers, and the cycle breakdown. For anything account-specific, customer support can assist you directly.", link: { label: "Contact customer support", href: "contact.html" } };
   };
 
   form.addEventListener("submit", (event) => {
@@ -1088,12 +1088,15 @@ function renderAdmin() {
 interface AdminReceipt {
   id: string;
   uid: string;
+  userId: string;
   username: string;
   email: string;
+  amount: number;
   amountCents: number;
   asset: string;
   networkName: string;
   receipt: { publicId: string; format: string; bytes: number } | null;
+  cloudinaryUrl: string | null;
   createdAt: { _seconds?: number; seconds?: number } | null;
 }
 

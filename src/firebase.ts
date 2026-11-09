@@ -9,7 +9,6 @@ import {
 } from "firebase/auth";
 import {
   collection,
-  collectionGroup,
   deleteDoc,
   doc,
   getDoc,
@@ -241,7 +240,7 @@ export function subscribePendingReceipts(
     onError(new Error("Firebase is not configured."));
     return () => undefined;
   }
-  const pending = query(collectionGroup(db, "receipts"), where("status", "==", "pending"));
+  const pending = query(collection(db, "receipts"), where("status", "==", "pending"));
   return onSnapshot(pending, (snapshot) => onCount(snapshot.size), onError);
 }
 
@@ -255,13 +254,38 @@ export function subscribeAccountActivity(
     return () => undefined;
   }
   let receipts: AccountActivity[] = [];
+  let legacyReceipts: AccountActivity[] = [];
+  let migratedLegacyReceiptIds = new Set<string>();
   let transfers: AccountActivity[] = [];
   const publish = () => {
-    onItems([...receipts, ...transfers]
+    onItems([...receipts, ...legacyReceipts, ...transfers]
       .sort((left, right) => (right.createdAt?.toMillis() || 0) - (left.createdAt?.toMillis() || 0))
       .slice(0, 12));
   };
-  const receiptQuery = query(
+  const receiptQuery = query(collection(db, "receipts"), where("uid", "==", uid));
+  const stopReceipts = onSnapshot(receiptQuery, (snapshot) => {
+    migratedLegacyReceiptIds = new Set(snapshot.docs
+      .map((item) => item.data().legacySourceId)
+      .filter((id): id is string => typeof id === "string"));
+    legacyReceipts = legacyReceipts.filter((item) => !migratedLegacyReceiptIds.has(item.id));
+    receipts = snapshot.docs.map((item) => {
+      const data = item.data();
+      return {
+        id: item.id,
+        type: "deposit",
+        amountCents: Number.isSafeInteger(data.amountCents)
+          ? data.amountCents
+          : typeof data.amount === "number" && Number.isFinite(data.amount)
+            ? Math.round(data.amount * 100)
+            : 0,
+        status: typeof data.status === "string" ? data.status : "pending",
+        detail: `${typeof data.asset === "string" ? data.asset : "Deposit"} · ${typeof data.networkName === "string" ? data.networkName : "Crypto"}`,
+        createdAt: data.createdAt ?? null,
+      };
+    });
+    publish();
+  }, onError);
+  const legacyReceiptQuery = query(
     collection(db, "users", uid, "receipts"),
     orderBy("createdAt", "desc"),
     limit(12),
@@ -271,13 +295,17 @@ export function subscribeAccountActivity(
     orderBy("createdAt", "desc"),
     limit(12),
   );
-  const stopReceipts = onSnapshot(receiptQuery, (snapshot) => {
-    receipts = snapshot.docs.map((item) => {
+  const stopLegacyReceipts = onSnapshot(legacyReceiptQuery, (snapshot) => {
+    legacyReceipts = snapshot.docs.filter((item) => !migratedLegacyReceiptIds.has(item.id)).map((item) => {
       const data = item.data();
       return {
         id: item.id,
         type: "deposit",
-        amountCents: Number.isSafeInteger(data.amountCents) ? data.amountCents : 0,
+        amountCents: Number.isSafeInteger(data.amountCents)
+          ? data.amountCents
+          : typeof data.amount === "number" && Number.isFinite(data.amount)
+            ? Math.round(data.amount * 100)
+            : 0,
         status: typeof data.status === "string" ? data.status : "pending",
         detail: `${typeof data.asset === "string" ? data.asset : "Deposit"} · ${typeof data.networkName === "string" ? data.networkName : "Crypto"}`,
         createdAt: data.createdAt ?? null,
@@ -301,6 +329,7 @@ export function subscribeAccountActivity(
   }, onError);
   return () => {
     stopReceipts();
+    stopLegacyReceipts();
     stopTransfers();
   };
 }

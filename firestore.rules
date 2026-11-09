@@ -41,8 +41,11 @@ service cloud.firestore {
       }
     }
 
-    match /{path=**}/receipts/{receiptId} {
-      allow list: if isAdmin() && resource.data.status == 'pending';
+    match /receipts/{receiptId} {
+      allow get: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow list: if (isAdmin() && resource.data.status == 'pending')
+        || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, update, delete: if false;
     }
 
     match /usernames/{username} {

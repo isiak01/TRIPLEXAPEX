@@ -320,7 +320,62 @@ async function verifyCloudinaryAsset(uid, requestId, claimedPublicId) {
     publicId: asset.public_id,
     format: String(asset.format).toLowerCase(),
     bytes: asset.bytes,
+    cloudinaryUrl: typeof asset.secure_url === "string" ? asset.secure_url : null,
   };
+}
+
+async function migrateLegacyReceipts() {
+  const migrationRef = db.collection("_system").doc("receiptCollectionV1");
+  const acquired = await db.runTransaction(async (transaction) => {
+    const migration = await transaction.get(migrationRef);
+    if (migration.data()?.state === "complete") return false;
+    const startedAt = migration.data()?.startedAtMs;
+    if (
+      migration.data()?.state === "running"
+      && Number.isSafeInteger(startedAt)
+      && Date.now() - startedAt < 30 * 60 * 1000
+    ) {
+      return false;
+    }
+    transaction.set(migrationRef, { state: "running", startedAtMs: Date.now() });
+    return true;
+  });
+  if (!acquired) {
+    const migration = await migrationRef.get();
+    if (migration.data()?.state === "complete") return;
+    fail(503, "Existing deposit requests are being moved to the receipts collection. Please retry shortly.");
+  }
+
+  try {
+    const users = await db.collection("users").get();
+    let batch = db.batch();
+    let operationCount = 0;
+    for (const user of users.docs) {
+      const legacyReceipts = await user.ref.collection("receipts").get();
+      for (const legacyReceipt of legacyReceipts.docs) {
+        const data = legacyReceipt.data();
+        const receiptRef = db.collection("receipts").doc(`legacy_${user.id}_${legacyReceipt.id}`);
+        batch.set(receiptRef, {
+          ...data,
+          uid: user.id,
+          legacySourceId: legacyReceipt.id,
+          cloudinaryUrl: data.cloudinaryUrl || data.receipt?.cloudinaryUrl || null,
+        });
+        operationCount += 1;
+        if (operationCount === 450) {
+          await batch.commit();
+          batch = db.batch();
+          operationCount = 0;
+        }
+      }
+    }
+    if (operationCount) await batch.commit();
+    await migrationRef.set({ state: "complete", completedAt: FieldValue.serverTimestamp() });
+  } catch (error) {
+    console.error("Could not move legacy deposit requests into the receipts collection.", error);
+    await migrationRef.set({ state: "failed" }, { merge: true });
+    throw error;
+  }
 }
 
 async function routeApi(request, response, url, corsHeaders) {
@@ -427,7 +482,9 @@ async function routeApi(request, response, url, corsHeaders) {
       receipt = await verifyCloudinaryAsset(identity.uid, body.uploadRequestId, body.publicId);
     }
     const wallet = getWallet(asset, network);
-    const receiptRef = userRef(identity.uid).collection("receipts").doc(body.requestId);
+    const receiptCollection = db.collection("receipts");
+    const newReceiptRef = receiptCollection.doc();
+    const requestKeyRef = userRef(identity.uid).collection("depositRequestKeys").doc(body.requestId);
     const notification = notificationRef(identity.uid);
     const networkDetails = getNetwork(asset, network);
     const admins = await db.collection("users").where("role", "==", "admin").limit(100).get();
@@ -438,17 +495,23 @@ async function routeApi(request, response, url, corsHeaders) {
         username: profile.username || profile.email,
       }));
     let created = false;
+    let receiptId = "";
     await db.runTransaction(async (transaction) => {
       created = false;
-      const [currentProfile, existingReceipt] = await Promise.all([
+      receiptId = "";
+      const [currentProfile, requestKey] = await Promise.all([
         transaction.get(userRef(identity.uid)),
-        transaction.get(receiptRef),
+        transaction.get(requestKeyRef),
       ]);
       if (!currentProfile.exists || currentProfile.data()?.isBanned === true) fail(403, "This account cannot submit a deposit.");
-      if (existingReceipt.exists) {
+      if (requestKey.exists) {
+        receiptId = requestKey.data()?.receiptId;
+        const existingReceipt = receiptId ? await transaction.get(receiptCollection.doc(receiptId)) : null;
+        if (!existingReceipt?.exists) fail(409, "This deposit request could not be verified. Please contact support.");
         const existing = existingReceipt.data();
         if (
-          existing.amountCents !== body.amountCents
+          existing.uid !== identity.uid
+          || existing.amountCents !== body.amountCents
           || existing.asset !== asset
           || existing.network !== network
           || (existing.receipt?.publicId || null) !== (receipt?.publicId || null)
@@ -457,15 +520,20 @@ async function routeApi(request, response, url, corsHeaders) {
         }
         return;
       }
-      transaction.create(receiptRef, {
+      receiptId = newReceiptRef.id;
+      transaction.create(newReceiptRef, {
+        requestId: body.requestId,
         uid: identity.uid,
+        userId: profile.username,
         username: profile.username,
         email: profile.email,
+        amount: body.amountCents / 100,
         amountCents: body.amountCents,
         asset,
         network,
         networkName: networkDetails.name,
         walletAddress: wallet.address,
+        cloudinaryUrl: receipt?.cloudinaryUrl || null,
         receipt: receipt || null,
         status: "pending",
         reviewMessage: "",
@@ -473,11 +541,15 @@ async function routeApi(request, response, url, corsHeaders) {
         reviewedAt: null,
         reviewedBy: null,
       });
+      transaction.create(requestKeyRef, {
+        receiptId: newReceiptRef.id,
+        createdAt: FieldValue.serverTimestamp(),
+      });
       transaction.create(notification, {
         title: "Deposit request under review",
         message: "Your deposit request is under review. Your USD balance will be updated once it is approved.",
         kind: "deposit",
-        metadata: { receiptId: receiptRef.id },
+        metadata: { receiptId: newReceiptRef.id },
         readAt: null,
         createdAt: FieldValue.serverTimestamp(),
       });
@@ -486,36 +558,24 @@ async function routeApi(request, response, url, corsHeaders) {
           title: "New deposit request",
           message: `${adminNotification.username} submitted a deposit request.`,
           kind: "receipt",
-          metadata: { uid: identity.uid, receiptId: receiptRef.id },
+          metadata: { uid: identity.uid, receiptId: newReceiptRef.id },
           readAt: null,
           createdAt: FieldValue.serverTimestamp(),
         });
       }
       created = true;
     });
-    const submitted = await receiptRef.get();
-    return send(created ? 201 : 200, { receiptId: receiptRef.id, status: submitted.data()?.status || "pending" });
+    const submitted = await receiptCollection.doc(receiptId).get();
+    return send(created ? 201 : 200, { receiptId, status: submitted.data()?.status || "pending" });
   }
   if (pathname === "/api/admin/receipts" && method === "GET") {
     await authenticate(request, { adminOnly: true });
-    let result;
-    try {
-      result = await db.collectionGroup("receipts").where("status", "==", "pending").limit(100).get();
-    } catch (error) {
-      console.error("Could not load pending deposit requests from Firestore.", error);
-      const code = error?.code;
-      if (code === 9 || code === "failed-precondition") {
-        fail(503, "Firestore needs a collection-group index for receipts.status. Create the required index, then retry.");
-      }
-      if (code === 7 || code === "permission-denied" || code === "PERMISSION_DENIED") {
-        fail(503, "The Firebase server account cannot read deposit requests. Check its Firestore IAM permissions.");
-      }
-      throw error;
-    }
+    await migrateLegacyReceipts();
+    const result = await db.collection("receipts").where("status", "==", "pending").limit(100).get();
     const receipts = result.docs.map((snapshot) => ({
       id: snapshot.id,
-      uid: snapshot.ref.parent.parent.id,
       ...snapshot.data(),
+      uid: snapshot.data().uid,
     })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     return send(200, { receipts });
   }
@@ -524,8 +584,9 @@ async function routeApi(request, response, url, corsHeaders) {
     await authenticate(request, { adminOnly: true });
     cloudinaryReady();
     const uid = url.searchParams.get("uid") || "";
-    const snapshot = await userRef(uid).collection("receipts").doc(receiptImageMatch[1]).get();
+    const snapshot = await db.collection("receipts").doc(receiptImageMatch[1]).get();
     const receipt = snapshot.data();
+    if (receipt?.uid !== uid) fail(404, "Deposit request not found.");
     if (!receipt?.receipt?.publicId) fail(404, "No receipt image was attached.");
     const imageUrl = cloudinary.utils.private_download_url(
       receipt.receipt.publicId,
@@ -539,7 +600,7 @@ async function routeApi(request, response, url, corsHeaders) {
     const { identity } = await authenticate(request, { adminOnly: true });
     const body = await readJson(request);
     const uid = typeof body.uid === "string" ? body.uid : "";
-    const receiptRef = userRef(uid).collection("receipts").doc(reviewMatch[1]);
+    const receiptRef = db.collection("receipts").doc(reviewMatch[1]);
     const profileRef = userRef(uid);
     const notification = notificationRef(uid);
     let creditedBalanceCents = 0;
@@ -555,6 +616,13 @@ async function routeApi(request, response, url, corsHeaders) {
       const receipt = receiptSnapshot.data();
       const profile = profileSnapshot.data();
       if (!receiptSnapshot.exists || !profileSnapshot.exists) fail(404, "Deposit request not found.");
+      if (receipt.uid !== uid) fail(404, "Deposit request not found.");
+      const legacyReceiptRef = typeof receipt.legacySourceId === "string"
+        ? userRef(uid).collection("receipts").doc(receipt.legacySourceId)
+        : null;
+      const legacyReceiptSnapshot = legacyReceiptRef
+        ? await transaction.get(legacyReceiptRef)
+        : null;
       if (receipt.status !== "pending") fail(409, "This deposit request has already been reviewed.");
       if (status === "approved") {
         if (profile.isBanned === true) fail(409, "A banned account cannot receive a deposit.");
@@ -573,6 +641,14 @@ async function routeApi(request, response, url, corsHeaders) {
         reviewedBy: identity.uid,
         reviewedAt: FieldValue.serverTimestamp(),
       });
+      if (legacyReceiptRef && legacyReceiptSnapshot?.exists) {
+        transaction.update(legacyReceiptRef, {
+          status,
+          reviewMessage: notificationMessage,
+          reviewedBy: identity.uid,
+          reviewedAt: FieldValue.serverTimestamp(),
+        });
+      }
       transaction.create(notification, {
         title: status === "approved" ? "Deposit successful" : "Deposit request update",
         message: notificationMessage,
