@@ -1,6 +1,61 @@
 services:
   - type: web
     name: triplex-dashboard
-    runtime: static
+    runtime: node
     buildCommand: npm ci && npm run build
-    staticPublishPath: ./dist
+    startCommand: npm start
+    envVars:
+      - key: APP_ORIGINS
+        sync: false
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false
+      - key: VITE_FIREBASE_APP_ID
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_UPLOAD_PRESET
+        sync: false
+      - key: BTC_BITCOIN
+        sync: false
+      - key: USDT_ETHEREUM
+        sync: false
+      - key: USDT_BSC
+        sync: false
+      - key: USDT_TRON
+        sync: false
+      - key: USDT_SOLANA
+        sync: false
+      - key: USDT_TON
+        sync: false
+      - key: USDC_ETHEREUM
+        sync: false
+      - key: USDC_SOLANA
+        sync: false
+      - key: USDC_ARBITRUM
+        sync: false
+      - key: USDC_SUI
+        sync: false
+      - key: ETH_ETHEREUM
+        sync: false
+      - key: ETH_ARBITRUM
+        sync: false
+      - key: BNB_BSC
+        sync: false
+      - key: SOL_SOLANA
+        sync: false
+      - key: GRAM_TON
+        sync: false
+      - key: TRX_TRON
+        sync: false
+      - key: SUI_SUI
+        sync: false

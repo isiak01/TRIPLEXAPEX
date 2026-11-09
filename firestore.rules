@@ -5,28 +5,56 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    match /usernameClaims/{username} {
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBanned != true;
+    }
+
+    match /users/{uid} {
+      allow get: if isOwner(uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update, delete: if false;
+
+      match /notifications/{notificationId} {
+        allow get, list: if isOwner(uid) || isAdmin();
+        allow create, delete: if false;
+        allow update: if isOwner(uid)
+          && resource.data.readAt == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt'])
+          && request.resource.data.readAt is timestamp;
+      }
+
+      match /receipts/{receiptId} {
+        allow get, list: if isOwner(uid) || isAdmin();
+        allow create, update, delete: if false;
+      }
+
+      match /transfers/{transferId} {
+        allow get, list: if isOwner(uid) || isAdmin();
+        allow create, update, delete: if false;
+      }
+    }
+
+    match /usernames/{username} {
       allow get: if signedIn();
-      allow list: if signedIn() && resource.data.uid == request.auth.uid;
-      allow create: if signedIn()
-        && username.matches('^[a-z0-9_]{3,20}$')
-        && request.resource.data.keys().hasOnly(['uid'])
-        && request.resource.data.uid == request.auth.uid;
-      allow update, delete: if false;
+      allow list, create, update, delete: if false;
+    }
+
+    match /usernameClaims/{username} {
+      allow read, write: if false;
     }
 
     match /accountRoles/{uid} {
-      allow get: if signedIn() && request.auth.uid == uid;
-      allow create: if signedIn()
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['role'])
-        && request.resource.data.role == 'user';
-      allow update, delete: if false;
+      allow read, write: if false;
     }
 
     match /balances/{uid} {
-      allow get: if signedIn() && request.auth.uid == uid;
-      allow list, create, update, delete: if false;
+      allow read, write: if false;
     }
 
     match /transfers/{transferId} {

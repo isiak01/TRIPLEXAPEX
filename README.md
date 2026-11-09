@@ -1,34 +1,54 @@
-# Triplex dashboard
+# Triplex
 
-A Vite and TypeScript multi-page dashboard prototype. The account screens use Firebase Google Authentication and Firestore username claims when configured. Deposit, withdrawal, and transfer operations do not move funds.
+Triplex is a multi-page Vite dashboard with Firebase Authentication, a Firestore-backed account ledger, manually reviewed crypto deposit requests, live notifications, admin member management, and Cloudinary-hosted receipts.
 
 ## Local setup
 
-1. Create a Firebase project and register a Web app.
-2. Enable **Authentication → Google** and add your local and deployed hostnames to **Authentication → Settings → Authorized domains**.
-3. Create a Firestore database and publish [`firestore.rules`](./firestore.rules).
-4. Copy `.env.example` to `.env` and fill in the Firebase Web app values from **Project settings → Your apps**.
-5. Install and run:
+1. Copy `.env.example` to `.env` and set the Firebase Web app values.
+2. Put a Firebase service-account JSON value in `FIREBASE_SERVICE_ACCOUNT_JSON`. This is a private server credential; never commit it or put it in a `VITE_*` variable.
+3. Configure a Cloudinary **signed upload preset**. Restrict its allowed formats to JPG, JPEG, PNG, WebP, and PDF and its maximum file size to 10 MB. Set the Cloudinary cloud name, API key, API secret, and preset name as server-only variables.
+4. Add verified deposit wallet addresses to the server environment. A network without an address is shown as unavailable. Never use a private key or seed phrase as a deposit address.
+5. Install dependencies and run the API and frontend in separate terminals:
 
    ```sh
-   npm install
+   npm ci
+   npm run api
    npm run dev
    ```
 
-The client Firebase API key identifies the Firebase project; it is not a server secret. Firestore Security Rules, Firebase Auth restrictions, and trusted server-side code must enforce access and money-related operations.
+The Vite development server proxies `/api` requests to port 10000. `APP_ORIGINS` in `.env` lists the local development origins. The production server serves the built Vite site and API from one origin:
 
-## Firestore data
+```sh
+npm run build
+npm start
+```
 
-- `usernameClaims/{lowercaseUsername}` stores only `{ uid }` to reserve a unique username. No `users` collection is created.
-- `accountRoles/{uid}` is created at first sign-in with `{ role: "user" }`. A user can create only their own `user` role once; client updates and deletes are denied. To grant admin access, use the Firebase Console to create or edit `accountRoles/{uid}` for the account's Firebase Authentication UID and set its `role` string to `admin`. The Admin navigation item and placeholder page appear only after this role is read.
-- `balances/{uid}` is readable only by its owner and is not writable by the web client. If a trusted administrator or backend provisions a document, its `balanceCents` integer is displayed. Missing balances display as `$0.00`.
-- `transfers` is fully denied to client access. Implement any future transfer in a trusted, authenticated backend with server-side authorization, balance checks, atomic writes, audit logging, and abuse controls. The current transfer panel only previews recipient lookup and amount entry; it does not submit a transfer.
+## Render deployment
 
-## Render static site
+The included [`render.yaml`](./render.yaml) configures a Node web service that builds the site and starts `server.mjs`. Add the four `VITE_FIREBASE_*` client values, `FIREBASE_SERVICE_ACCOUNT_JSON`, the Cloudinary values, and the receiving wallet addresses in the Render service's Environment settings. The Cloudinary API secret and Firebase service-account JSON are server secrets and must never be exposed as `VITE_*` variables. If server credentials are missing, the site can still be served, but account/payment API calls return an explicit configuration error.
 
-Create a Render Static Site from this repository. The included [`render.yaml`](./render.yaml) sets `npm ci && npm run build` and publishes `dist`. Add the four `VITE_FIREBASE_*` values from `.env.example` as Render environment variables before building; Vite embeds these public client settings in the static bundle. Add the Render hostname to Firebase Authentication's authorized domains. Never put service-account credentials or private keys in Vite environment variables.
+Set `APP_ORIGINS` to the exact public site origin if requests arrive through a custom proxy or domain. Create a Cloudinary signed upload preset with the format and size restrictions above. Enable PDF delivery in Cloudinary if admins need to view uploaded PDF receipts. Signed, authenticated-delivery uploads keep receipt files out of Firebase Storage; the API issues short-lived upload signatures and only admins can request temporary receipt-view links.
 
-If deploying as a Render Web Service instead, use `npm run build` as the build command and `npm start` as the start command. The start script serves the built `dist` files on Render's `PORT`.
+## Firestore data and access
 
-The site includes a web app manifest and service worker. On supported browsers, choose **Install** from the in-app prompt or the browser menu to add Triplex to the home screen.
-# TRIPLEX
+- `users/{uid}` is the canonical account document. It stores `username`, `usernameLower`, `email`, `role`, `balanceCents`, `isBanned`, and audit timestamps. Per-user `notifications`, `receipts`, and `transfers` live in subcollections beneath that document.
+- `usernames/{lowercaseUsername}` is a minimal uniqueness index; it stores only the owning UID. The existing `usernameClaims`, `accountRoles`, and `balances` documents are read server-side during first sign-in to migrate existing account details. They are not writable or readable by the browser after the new rules are published.
+- Deposit addresses are selected by asset and network from the variables listed below. Only configured addresses are offered. The API records the selected network/address and the requested USD amount with each deposit request.
+- Admin review uses a Firestore transaction. Approving a pending request updates its status, credits the user's `balanceCents` exactly once, and creates a user notification atomically. Rejection changes its status and notifies the user. Balance transfers are also validated and applied in a transaction.
+- Firestore client rules allow users to read their own profile and notifications, but deny client writes to account balances, roles, bans, receipts, and transfers. Publish [`firestore.rules`](./firestore.rules) before enabling the app.
+- Existing administrator roles are migrated from `accountRoles/{uid}` on first sign-in. For a new administrator, create the user's `users/{uid}` document by signing in once and then set its `role` to `admin` in the Firebase Console. Only trusted administrators should have console access to this field.
+- Admin approvals and bans are audited by reviewer UID and timestamp. A ban blocks signed-in API actions and the live profile listener immediately displays the account restriction screen.
+
+## Supported deposit address variables
+
+`BTC_BITCOIN`; `USDT_ETHEREUM`, `USDT_BSC`, `USDT_TRON`, `USDT_SOLANA`, `USDT_TON`; `USDC_ETHEREUM`, `USDC_SOLANA`, `USDC_ARBITRUM`, `USDC_SUI`; `ETH_ETHEREUM`, `ETH_ARBITRUM`; `BNB_BSC`; `SOL_SOLANA`; `GRAM_TON`; `TRX_TRON`; and `SUI_SUI`.
+
+The offered USDT networks follow [Tether's supported protocol list](https://tether.to/en/supported-protocols/). Native USDC networks listed here are checked against [Circle's supported USDC contract list](https://developers.circle.com/stablecoins/usdc-contract-addresses). Verify every destination address and token/network combination with the receiving wallet provider before configuring it. The site does not infer, generate, or substitute wallet addresses.
+
+## Installable app
+
+The site includes a web app manifest, app icon, service worker, and an in-app installation prompt. Supported browsers can install Triplex from the prompt or browser menu.
+
+## Profit projection and website assistant
+
+The Profit progress page displays the user's actual credited balance separately from the supplied five-cycle USDT example. That example is hypothetical, is not a forecast or guaranteed return, and does not change account balances. No live trading feed or automated hourly/daily earnings engine is connected. The assistant uses prepared replies about verified site features; it is not a live AI service and cannot inspect payment or account records.
