@@ -21,6 +21,7 @@ export default defineConfig({
         profit: "profit.html",
         assistant: "assistant.html",
         receipts: "receipts.html",
+        withdrawals: "withdrawals.html",
         members: "members.html",
       },
     },

@@ -39,12 +39,29 @@ service cloud.firestore {
         allow get, list: if isOwner(uid) || isAdmin();
         allow create, update, delete: if false;
       }
+
+      match /profitActivity/{activityId} {
+        allow get, list: if isOwner(uid) || isAdmin();
+        allow create, update, delete: if false;
+      }
     }
 
     match /receipts/{receiptId} {
       allow get: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
       allow list: if (isAdmin() && resource.data.status == 'pending')
         || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /withdrawals/{withdrawalId} {
+      allow get: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow list: if (isAdmin() && resource.data.status == 'pending')
+        || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, update, delete: if false;
+    }
+
+    match /profitCycles/{cycleId} {
+      allow get, list: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
       allow create, update, delete: if false;
     }
 

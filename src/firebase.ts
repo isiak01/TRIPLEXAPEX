@@ -31,6 +31,7 @@ export interface UserProfile {
   role: AccountRole;
   balanceCents: number;
   isBanned: boolean;
+  activeProfitCycleId: string | null;
 }
 
 export interface AccountNotification {
@@ -43,11 +44,24 @@ export interface AccountNotification {
 
 export interface AccountActivity {
   id: string;
-  type: "deposit" | "sent" | "received";
+  type: "deposit" | "sent" | "received" | "withdrawal" | "profit";
   amountCents: number;
+  bonusCents?: number;
   status: string;
   detail: string;
   createdAt: Timestamp | null;
+}
+
+export interface ProfitCycle {
+  id: string;
+  status: "active" | "completed";
+  principalCents: number;
+  currentAmountCents: number;
+  totalProfitCents: number;
+  totalFeeCents: number;
+  dayNumber: number;
+  hourInDay: number;
+  startedAtMs: number;
 }
 
 const config = {
@@ -159,6 +173,7 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
     role: data.role === "admin" ? "admin" : "user",
     balanceCents: Number.isSafeInteger(data.balanceCents) && data.balanceCents >= 0 ? data.balanceCents : 0,
     isBanned: data.isBanned === true,
+    activeProfitCycleId: typeof data.activeProfitCycleId === "string" ? data.activeProfitCycleId : null,
   };
 }
 
@@ -193,6 +208,7 @@ export function subscribeUserProfile(
       role: data.role === "admin" ? "admin" : "user",
       balanceCents: Number.isSafeInteger(data.balanceCents) && data.balanceCents >= 0 ? data.balanceCents : 0,
       isBanned: data.isBanned === true,
+      activeProfitCycleId: typeof data.activeProfitCycleId === "string" ? data.activeProfitCycleId : null,
     });
   }, onError);
 }
@@ -244,6 +260,47 @@ export function subscribePendingReceipts(
   return onSnapshot(pending, (snapshot) => onCount(snapshot.size), onError);
 }
 
+export function subscribePendingWithdrawals(
+  onCount: (count: number) => void,
+  onError: (error: Error) => void,
+): () => void {
+  if (!db) {
+    onError(new Error("Firebase is not configured."));
+    return () => undefined;
+  }
+  const pending = query(collection(db, "withdrawals"), where("status", "==", "pending"));
+  return onSnapshot(pending, (snapshot) => onCount(snapshot.size), onError);
+}
+
+export function subscribeProfitCycle(
+  uid: string,
+  onCycle: (cycle: ProfitCycle | null) => void,
+  onError: (error: Error) => void,
+): () => void {
+  if (!db) {
+    onError(new Error("Firebase is not configured."));
+    return () => undefined;
+  }
+  const cycles = query(collection(db, "profitCycles"), where("uid", "==", uid));
+  return onSnapshot(cycles, (snapshot) => {
+    const items = snapshot.docs.map((item) => {
+      const data = item.data();
+      return {
+        id: item.id,
+        status: data.status === "active" ? "active" as const : "completed" as const,
+        principalCents: Number.isSafeInteger(data.principalCents) ? data.principalCents : 0,
+        currentAmountCents: Number.isSafeInteger(data.currentAmountCents) ? data.currentAmountCents : 0,
+        totalProfitCents: Number.isSafeInteger(data.totalProfitCents) ? data.totalProfitCents : 0,
+        totalFeeCents: Number.isSafeInteger(data.totalFeeCents) ? data.totalFeeCents : 0,
+        dayNumber: Number.isSafeInteger(data.dayNumber) ? data.dayNumber : 1,
+        hourInDay: Number.isSafeInteger(data.hourInDay) ? data.hourInDay : 0,
+        startedAtMs: Number.isSafeInteger(data.startedAtMs) ? data.startedAtMs : 0,
+      };
+    }).sort((left, right) => right.startedAtMs - left.startedAtMs);
+    onCycle(items.find((item) => item.status === "active") || items[0] || null);
+  }, onError);
+}
+
 export function subscribeAccountActivity(
   uid: string,
   onItems: (items: AccountActivity[]) => void,
@@ -257,8 +314,10 @@ export function subscribeAccountActivity(
   let legacyReceipts: AccountActivity[] = [];
   let migratedLegacyReceiptIds = new Set<string>();
   let transfers: AccountActivity[] = [];
+  let withdrawals: AccountActivity[] = [];
+  let profitActivity: AccountActivity[] = [];
   const publish = () => {
-    onItems([...receipts, ...legacyReceipts, ...transfers]
+    onItems([...receipts, ...legacyReceipts, ...transfers, ...withdrawals, ...profitActivity]
       .sort((left, right) => (right.createdAt?.toMillis() || 0) - (left.createdAt?.toMillis() || 0))
       .slice(0, 12));
   };
@@ -270,16 +329,20 @@ export function subscribeAccountActivity(
     legacyReceipts = legacyReceipts.filter((item) => !migratedLegacyReceiptIds.has(item.id));
     receipts = snapshot.docs.map((item) => {
       const data = item.data();
+      const bonusCents = data.status === "approved" && Number.isSafeInteger(data.firstDepositBonusCents)
+        ? data.firstDepositBonusCents
+        : 0;
       return {
         id: item.id,
         type: "deposit",
-        amountCents: Number.isSafeInteger(data.amountCents)
+        amountCents: (Number.isSafeInteger(data.amountCents)
           ? data.amountCents
           : typeof data.amount === "number" && Number.isFinite(data.amount)
             ? Math.round(data.amount * 100)
-            : 0,
+            : 0) + bonusCents,
+        ...(bonusCents > 0 ? { bonusCents } : {}),
         status: typeof data.status === "string" ? data.status : "pending",
-        detail: `${typeof data.asset === "string" ? data.asset : "Deposit"} · ${typeof data.networkName === "string" ? data.networkName : "Crypto"}`,
+        detail: `${typeof data.asset === "string" ? data.asset : "Deposit"} · ${typeof data.networkName === "string" ? data.networkName : "Crypto"}${bonusCents > 0 ? ` · +$${(bonusCents / 100).toFixed(2)} first-deposit gift` : ""}`,
         createdAt: data.createdAt ?? null,
       };
     });
@@ -295,19 +358,29 @@ export function subscribeAccountActivity(
     orderBy("createdAt", "desc"),
     limit(12),
   );
+  const withdrawalQuery = query(collection(db, "withdrawals"), where("uid", "==", uid));
+  const profitActivityQuery = query(
+    collection(db, "users", uid, "profitActivity"),
+    orderBy("createdAt", "desc"),
+    limit(50),
+  );
   const stopLegacyReceipts = onSnapshot(legacyReceiptQuery, (snapshot) => {
     legacyReceipts = snapshot.docs.filter((item) => !migratedLegacyReceiptIds.has(item.id)).map((item) => {
       const data = item.data();
+      const bonusCents = data.status === "approved" && Number.isSafeInteger(data.firstDepositBonusCents)
+        ? data.firstDepositBonusCents
+        : 0;
       return {
         id: item.id,
         type: "deposit",
-        amountCents: Number.isSafeInteger(data.amountCents)
+        amountCents: (Number.isSafeInteger(data.amountCents)
           ? data.amountCents
           : typeof data.amount === "number" && Number.isFinite(data.amount)
             ? Math.round(data.amount * 100)
-            : 0,
+            : 0) + bonusCents,
+        ...(bonusCents > 0 ? { bonusCents } : {}),
         status: typeof data.status === "string" ? data.status : "pending",
-        detail: `${typeof data.asset === "string" ? data.asset : "Deposit"} · ${typeof data.networkName === "string" ? data.networkName : "Crypto"}`,
+        detail: `${typeof data.asset === "string" ? data.asset : "Deposit"} · ${typeof data.networkName === "string" ? data.networkName : "Crypto"}${bonusCents > 0 ? ` · +$${(bonusCents / 100).toFixed(2)} first-deposit gift` : ""}`,
         createdAt: data.createdAt ?? null,
       };
     });
@@ -327,9 +400,39 @@ export function subscribeAccountActivity(
     });
     publish();
   }, onError);
+  const stopWithdrawals = onSnapshot(withdrawalQuery, (snapshot) => {
+    withdrawals = snapshot.docs.map((item) => {
+      const data = item.data();
+      return {
+        id: item.id,
+        type: "withdrawal",
+        amountCents: Number.isSafeInteger(data.amountCents) ? data.amountCents : 0,
+        status: typeof data.status === "string" ? data.status : "pending",
+        detail: `${typeof data.asset === "string" ? data.asset : "Crypto"} · ${typeof data.networkName === "string" ? data.networkName : "Withdrawal"}`,
+        createdAt: data.createdAt ?? null,
+      };
+    });
+    publish();
+  }, onError);
+  const stopProfitActivity = onSnapshot(profitActivityQuery, (snapshot) => {
+    profitActivity = snapshot.docs.map((item) => {
+      const data = item.data();
+      return {
+        id: item.id,
+        type: "profit",
+        amountCents: Number.isSafeInteger(data.amountCents) ? data.amountCents : 0,
+        status: data.type === "fee" ? "fee" : "credited",
+        detail: `Day ${Number.isSafeInteger(data.dayNumber) ? data.dayNumber : 1}${data.type === "fee" ? " · cycle fee" : ` · hour ${Number.isSafeInteger(data.hourInDay) ? data.hourInDay : 1}`}`,
+        createdAt: data.createdAt ?? null,
+      };
+    });
+    publish();
+  }, onError);
   return () => {
     stopReceipts();
     stopLegacyReceipts();
     stopTransfers();
+    stopWithdrawals();
+    stopProfitActivity();
   };
 }

@@ -16,11 +16,14 @@ import {
   subscribeAccountActivity,
   subscribeNotifications,
   subscribePendingReceipts,
+  subscribePendingWithdrawals,
+  subscribeProfitCycle,
   subscribeUserProfile,
   signInWithGoogle,
   signOutUser,
   type AccountNotification,
   type AccountActivity,
+  type ProfitCycle,
   watchAuth,
 } from "./firebase";
 
@@ -79,6 +82,7 @@ const pageRoutes: Record<string, string> = {
   "profit.html": "profit",
   "assistant.html": "assistant",
   "receipts.html": "receipts",
+  "withdrawals.html": "withdrawals",
   "members.html": "members",
 };
 const page = pageRoutes[route] || "dashboard";
@@ -87,14 +91,20 @@ let currentUser: User | null = null;
 let currentUsername: string | null = null;
 let currentRole: "user" | "admin" = "user";
 let balanceCents = 0;
+let activeProfitCycleId: string | null = null;
 let balanceVisible = true;
 let notifications: AccountNotification[] = [];
 let accountActivity: AccountActivity[] = [];
+let currentProfitCycle: ProfitCycle | null = null;
 let pendingReceiptCount = 0;
+let pendingWithdrawalCount = 0;
 let stopProfileWatch: (() => void) | null = null;
 let stopNotificationsWatch: (() => void) | null = null;
 let stopReceiptsWatch: (() => void) | null = null;
+let stopWithdrawalsWatch: (() => void) | null = null;
+let stopProfitCycleWatch: (() => void) | null = null;
 let stopActivityWatch: (() => void) | null = null;
+let profitCountdownTimer: number | null = null;
 let lookupTimer = 0;
 let lookupVersion = 0;
 
@@ -166,12 +176,13 @@ function frame(content: string, activePage: string, username: string | null) {
         <nav class="nav">
           <a href="index.html" ${activePage === "dashboard" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-overview" aria-hidden="true">▦</span>Overview</a>
           <a href="index.html#activity"><span class="nav-icon nav-icon-activity" aria-hidden="true">◷</span>Activity</a>
-          <a href="profit.html" ${activePage === "profit" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-profit" aria-hidden="true">↗</span>Profit projection</a>
+          <a href="profit.html" ${activePage === "profit" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-profit" aria-hidden="true">↗</span>Profit progress</a>
           <a href="assistant.html" ${activePage === "assistant" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-assistant" aria-hidden="true">✦</span>TRIPLEX AI ASSISTANT</a>
           <a href="contact.html" ${activePage === "contact" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-contact" aria-hidden="true">✉</span>Contact</a>
           ${currentRole === "admin" ? `
             <a href="admin.html" ${activePage === "admin" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-admin" aria-hidden="true">◆</span>Admin</a>
             <a href="receipts.html" ${activePage === "receipts" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-receipts" aria-hidden="true">▤</span>Receipts${pendingReceiptCount ? `<span class="nav-count" data-receipt-count>${pendingReceiptCount > 99 ? "99+" : pendingReceiptCount}</span>` : ""}</a>
+            <a href="withdrawals.html" ${activePage === "withdrawals" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-profit" aria-hidden="true">↓</span>Withdrawals${pendingWithdrawalCount ? `<span class="nav-count" data-withdrawal-count>${pendingWithdrawalCount > 99 ? "99+" : pendingWithdrawalCount}</span>` : ""}</a>
             <a href="members.html" ${activePage === "members" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-members" aria-hidden="true">♙</span>Members</a>` : ""}
         </nav>
         <div class="sidebar-bottom">
@@ -236,10 +247,11 @@ function notificationItemsMarkup() {
 function pageTitle(activePage: string) {
   switch (activePage) {
     case "contact": return "Contact";
-    case "profit": return "Profit projection";
+    case "profit": return "Profit progress";
     case "assistant": return "TRIPLEX AI ASSISTANT";
     case "admin": return "Admin";
     case "receipts": return "Receipts";
+    case "withdrawals": return "Withdrawals";
     case "members": return "Members";
     default: return "Overview";
   }
@@ -329,12 +341,29 @@ function updateNotificationControls() {
 
 function updateReceiptBadge() {
   document.querySelectorAll<HTMLElement>("[data-receipt-count]").forEach((badge) => badge.remove());
+  const summary = document.querySelector<HTMLAnchorElement>('.admin-shortcut[href="receipts.html"] small');
+  if (summary) summary.textContent = `${pendingReceiptCount} awaiting review`;
   if (pendingReceiptCount > 0) {
     document.querySelectorAll<HTMLAnchorElement>('.nav a[href="receipts.html"]').forEach((link) => {
       const badge = document.createElement("span");
       badge.className = "nav-count";
       badge.dataset.receiptCount = "";
       badge.textContent = pendingReceiptCount > 99 ? "99+" : String(pendingReceiptCount);
+      link.append(badge);
+    });
+  }
+}
+
+function updateWithdrawalBadge() {
+  document.querySelectorAll<HTMLElement>("[data-withdrawal-count]").forEach((badge) => badge.remove());
+  const summary = document.querySelector<HTMLAnchorElement>('.admin-shortcut[href="withdrawals.html"] small');
+  if (summary) summary.textContent = `${pendingWithdrawalCount} awaiting review`;
+  if (pendingWithdrawalCount > 0) {
+    document.querySelectorAll<HTMLAnchorElement>('.nav a[href="withdrawals.html"]').forEach((link) => {
+      const badge = document.createElement("span");
+      badge.className = "nav-count";
+      badge.dataset.withdrawalCount = "";
+      badge.textContent = pendingWithdrawalCount > 99 ? "99+" : String(pendingWithdrawalCount);
       link.append(badge);
     });
   }
@@ -371,6 +400,7 @@ function renderDashboard() {
         <button class="visibility-button" id="visibility-toggle" type="button" aria-label="${balanceVisible ? "Hide" : "Show"} balance"><svg class="visibility-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18M10.6 10.6a2 2 0 0 0 2.8 2.8"/><path d="M9.9 5.2A10.7 10.7 0 0 1 12 5c5.2 0 8.7 4.1 9.5 6-.3.8-1 1.8-2 2.8M6.2 6.2C3.9 7.6 2.8 9.8 2.5 11c.8 1.9 4.3 6 9.5 6 1.1 0 2.1-.2 3-.5"/></svg><span>${balanceVisible ? "Hide" : "Show"}</span></button>
       </div>
       <div class="balance-value-row"><p class="balance-value" id="balance-value">${balanceVisible ? balance : "••••••"}</p><span class="currency">USD</span></div>
+      <p class="balance-growth" id="balance-growth" ${currentProfitCycle ? "" : "hidden"}></p>
       <div class="balance-footer"><span class="balance-foot">${currentUser ? "Account balance" : "No account connected"}</span><span class="balance-period">USD · US Dollar</span></div>
     </section>
     ${authActions}
@@ -380,11 +410,12 @@ function renderDashboard() {
       <button class="action-button" type="button" data-action="transfer"><span class="action-symbol" aria-hidden="true">↗</span>Transfer</button>
     </div>
     <section id="activity" aria-labelledby="activity-heading">
-      <div class="section-heading"><div><p class="eyebrow">Your account</p><h2 id="activity-heading">Recent activity</h2></div><a class="section-link" href="profit.html">View projection <span aria-hidden="true">→</span></a></div>
+      <div class="section-heading"><div><p class="eyebrow">Your account</p><h2 id="activity-heading">Recent activity</h2></div><a class="section-link" href="profit.html">Profit progress <span aria-hidden="true">→</span></a></div>
       <div class="activity-card" id="activity-list"></div>
     </section>`, "dashboard", currentUsername);
 
   renderActivity();
+  updateBalanceGrowth();
   document.querySelector<HTMLButtonElement>("#visibility-toggle")?.addEventListener("click", () => {
     balanceVisible = !balanceVisible;
     renderDashboard();
@@ -396,6 +427,8 @@ function renderDashboard() {
         showTransferCard();
       } else if (action === "deposit") {
         void showDepositFlow();
+      } else if (action === "withdraw") {
+        void showWithdrawalFlow();
       } else {
         showNotice(`${capitalize(action ?? "Action")} unavailable`, "Please contact support for assistance.");
       }
@@ -411,47 +444,63 @@ function renderActivity() {
     return;
   }
   activityRoot.innerHTML = `<div class="activity-list">${accountActivity.map((item) => {
-    const incoming = item.type === "received" || (item.type === "deposit" && item.status === "approved");
+    const incoming = item.type === "received"
+      || (item.type === "deposit" && item.status === "approved")
+      || (item.type === "withdrawal" && item.status === "rejected")
+      || (item.type === "profit" && item.amountCents > 0);
     let title: string;
     if (item.type === "deposit") {
       title = item.status === "approved" ? "Deposit successful" : item.status === "rejected" ? "Deposit rejected" : "Deposit request";
+    } else if (item.type === "withdrawal") {
+      title = item.status === "completed" ? "Withdrawal sent" : item.status === "rejected" ? "Withdrawal returned" : "Withdrawal request";
+    } else if (item.type === "profit") {
+      title = item.status === "fee" ? "Cycle fee" : "Profit credited";
     } else {
       title = item.type === "received" ? "Transfer received" : "Transfer sent";
     }
     const timestamp = item.createdAt ? item.createdAt.toDate().toLocaleString() : "Just now";
+    const outgoing = item.type === "sent" || (item.type === "withdrawal" && item.status !== "rejected")
+      || (item.type === "profit" && item.amountCents < 0);
+    const sign = incoming ? "+" : outgoing ? "−" : "";
     return `<article class="activity-row">
-      <span class="activity-row-icon ${incoming ? "is-incoming" : ""}" aria-hidden="true">${item.type === "deposit" ? "↓" : item.type === "received" ? "↙" : "↗"}</span>
+      <span class="activity-row-icon ${incoming ? "is-incoming" : ""}" aria-hidden="true">${item.type === "deposit" ? "↓" : item.type === "withdrawal" ? "↑" : item.type === "profit" ? item.amountCents < 0 ? "−" : "↗" : item.type === "received" ? "↙" : "↗"}</span>
       <span class="activity-row-copy"><strong>${title}</strong><small>${escapeHtml(item.detail)} · ${escapeHtml(timestamp)}</small></span>
-      <span class="activity-row-amount ${incoming ? "is-incoming" : ""}">${incoming ? "+" : item.type === "sent" ? "−" : ""}${formatCurrency(item.amountCents)}</span>
+      <span class="activity-row-amount ${incoming ? "is-incoming" : outgoing ? "is-outgoing" : ""}">${sign}${formatCurrency(Math.abs(item.amountCents))}</span>
       <span class="activity-status status-${escapeHtml(item.status)}">${escapeHtml(capitalize(item.status))}</span>
     </article>`;
   }).join("")}</div>`;
 }
 
-function formatUsdt(cents: number) {
-  return `${new Intl.NumberFormat("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(cents / 100)} USDT`;
+function updateBalanceGrowth() {
+  const element = document.querySelector<HTMLParagraphElement>("#balance-growth");
+  if (!element) return;
+  const netEarnings = currentProfitCycle
+    ? currentProfitCycle.totalProfitCents - currentProfitCycle.totalFeeCents
+    : 0;
+  element.hidden = !currentProfitCycle || netEarnings <= 0;
+  element.textContent = `Cycle earnings  +${formatCurrency(Math.max(0, netEarnings))}`;
 }
 
 function renderProfitPage() {
   const projection: {
-    cycle: number;
+    day: number;
     openingCents: number;
-    illustrativeCents: number;
+    growthCents: number;
+    postGrowthCents: number;
     feeCents: number;
     netCents: number;
   }[] = [];
   let openingCents = 1_000;
-  for (let cycle = 1; cycle <= 5; cycle += 1) {
-    const illustrativeCents = Math.round(openingCents * 1.8);
-    const feeCents = 400;
-    const netCents = illustrativeCents - feeCents;
+  for (let day = 1; day <= 5; day += 1) {
+    const growthCents = Math.round(openingCents * 0.053);
+    const postGrowthCents = openingCents + growthCents;
+    const feeCents = Math.round(postGrowthCents * 0.01);
+    const netCents = postGrowthCents - feeCents;
     projection.push({
-      cycle,
+      day,
       openingCents,
-      illustrativeCents,
+      growthCents,
+      postGrowthCents,
       feeCents,
       netCents,
     });
@@ -465,43 +514,81 @@ function renderProfitPage() {
   const points = coordinates.map((point) => `${point.x},${point.y}`).join(" ");
   const areaPath = `M${coordinates[0].x} ${coordinates[0].y} ${coordinates.slice(1).map((point) => `L${point.x} ${point.y}`).join(" ")} L${coordinates[coordinates.length - 1].x} 136 L${coordinates[0].x} 136 Z`;
   const finalCents = projection[projection.length - 1].netCents;
+  const activeCycle = currentProfitCycle?.status === "active" ? currentProfitCycle : null;
+  const completedCycle = currentProfitCycle?.status === "completed" ? currentProfitCycle : null;
+  const cycleProgressHours = activeCycle
+    ? Math.min(120, Math.max(0, (activeCycle.dayNumber - 1) * 24 + activeCycle.hourInDay))
+    : 0;
+  const hoursLeft = activeCycle
+    ? Math.max(0, Math.ceil((activeCycle.startedAtMs + 120 * 60 * 60 * 1000 - Date.now()) / (60 * 60 * 1000)))
+    : 0;
+  const cyclePanel = activeCycle
+    ? `<section class="cycle-status-card" aria-live="polite">
+        <div class="cycle-status-header"><div><p class="eyebrow">Cycle ${activeCycle.dayNumber} of 5</p><h2>Five-day cycle active</h2></div><span class="cycle-live-pill"><i></i> ACTIVE</span></div>
+        <div class="cycle-progress-track"><span style="width:${Math.min(100, (cycleProgressHours / 120) * 100)}%"></span></div>
+        <div class="cycle-stat-grid">
+          <div><span>Time left</span><strong data-cycle-time-left>${Math.floor(hoursLeft / 24)}d ${hoursLeft % 24}h</strong></div>
+          <div><span>Profit earned</span><strong class="cycle-positive">+${formatCurrency(Math.max(0, activeCycle.totalProfitCents - activeCycle.totalFeeCents))}</strong></div>
+          <div><span>Fee deducted</span><strong class="cycle-negative">−${formatCurrency(activeCycle.totalFeeCents)}</strong></div>
+          <div><span>Growing amount</span><strong>${formatCurrency(activeCycle.currentAmountCents)}</strong></div>
+        </div>
+        <p class="cycle-status-copy">Hourly earnings are added to your available balance. Withdrawals and transfers are paused until the five-day cycle finishes.</p>
+        <button class="button button-secondary" type="button" disabled>Withdrawals available after cycle completion</button>
+      </section>`
+    : completedCycle
+      ? `<section class="cycle-status-card cycle-complete-card">
+          <div class="cycle-status-header"><div><p class="eyebrow">Cycle complete</p><h2>Your five-day cycle is finished</h2></div><span class="cycle-complete-pill">COMPLETE</span></div>
+          <p>Your reserved starting amount has returned to your available balance. Withdrawals are available.</p>
+          <div class="receipt-actions"><button class="button button-primary" type="button" data-profit-withdraw>Withdraw</button><button class="button button-secondary" type="button" data-profit-start>Start another cycle</button></div>
+        </section>`
+      : currentUser && balanceCents > 0
+        ? `<section class="progress-start-card"><div><p class="eyebrow">Ready when you are</p><h2>Grow a selected amount</h2><p>Choose an amount from your available balance to start a five-day cycle.</p></div><button class="button button-primary" type="button" data-profit-start>Start growing profit</button></section>`
+        : `<section class="progress-empty-state"><span class="progress-empty-icon" aria-hidden="true">↗</span><div><h2>Deposit before starting</h2><p>${currentUser ? "Your available balance is $0.00. Make a deposit before starting a profit cycle." : "Log in and deposit funds before starting a profit cycle."}</p></div><button class="button button-primary" type="button" data-progress-deposit>Make a deposit</button></section>`;
+
+  if (profitCountdownTimer !== null) window.clearInterval(profitCountdownTimer);
   frame(`
-    <p class="eyebrow">Training illustration</p>
-    <h1>Profit projection</h1>
-    <p class="intro">Track your available account balance and follow the five-cycle training projection.</p>
-    <section class="profit-terminal" aria-label="Account balance and hypothetical projection">
-      <div class="profit-terminal-head"><span class="profit-market-tag"><i></i> ACCOUNT BALANCE</span><span class="profit-illustration-tag">HYPOTHETICAL EXAMPLE</span></div>
+    <p class="eyebrow">Account growth</p>
+    <h1>Profit progress</h1>
+    <p class="intro">Follow your five-day cycle and review the daily growth, fees, and account activity.</p>
+    <section class="profit-terminal" aria-label="Account balance and five-day growth schedule">
+      <div class="profit-terminal-head"><span class="profit-market-tag"><i></i> ACCOUNT BALANCE</span><span class="profit-illustration-tag">5 DAY CYCLE</span></div>
       <div class="profit-terminal-grid">
-        <div class="profit-equity"><span>Available balance</span><strong id="profit-balance">${formatCurrency(currentUser ? balanceCents : 0)} <small>USD</small></strong><p>${currentUser ? "Current credited balance" : "Log in to view your account balance"}</p></div>
-        <div class="profit-projected"><span>Example final amount</span><strong>${formatUsdt(finalCents)}</strong><p>After 5 hypothetical cycles · 15 days</p></div>
+        <div class="profit-equity"><span>Available balance</span><strong id="profit-balance">${formatCurrency(currentUser ? balanceCents : 0)} <small>USD</small></strong><p>${currentUser ? "Current credited balance" : "Log in to view your account balance"}</p>${currentProfitCycle && currentProfitCycle.totalProfitCents > currentProfitCycle.totalFeeCents ? `<p class="profit-balance-growth">Cycle earnings +${formatCurrency(currentProfitCycle.totalProfitCents - currentProfitCycle.totalFeeCents)}</p>` : ""}</div>
+        <div class="profit-projected"><span>Net after day 5</span><strong>${formatCurrency(finalCents)}</strong><p>From a $10.00 starting amount</p></div>
       </div>
-      <div class="profit-chart-heading"><span>ILLUSTRATIVE NET AMOUNT</span></div>
-      <svg class="profit-chart" viewBox="0 0 400 150" role="img" aria-label="Hypothetical five-cycle projection rising from 14 to 99.48 USDT">
+      <div class="profit-chart-heading"><span>NET AMOUNT BY DAY</span></div>
+      <svg class="profit-chart" viewBox="0 0 400 150" role="img" aria-label="Five-day growth schedule from a $10 starting amount">
         <defs><linearGradient id="profit-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#20c978" stop-opacity=".28"/><stop offset="1" stop-color="#20c978" stop-opacity="0"/></linearGradient></defs>
         <path class="profit-chart-area" d="${areaPath}"/>
         <polyline class="profit-chart-line" points="${points}"/>
-        ${projection.map((row, index) => `<circle class="profit-chart-point" cx="${coordinates[index].x}" cy="${coordinates[index].y}" r="4"><title>Cycle ${row.cycle}: ${formatUsdt(row.netCents)}</title></circle>`).join("")}
+        ${projection.map((row, index) => `<circle class="profit-chart-point" cx="${coordinates[index].x}" cy="${coordinates[index].y}" r="4"><title>Day ${row.day}: ${formatCurrency(row.netCents)}</title></circle>`).join("")}
       </svg>
-      <div class="profit-chart-labels"><span>Cycle 1</span><span>Cycle 2</span><span>Cycle 3</span><span>Cycle 4</span><span>Cycle 5</span></div>
+      <div class="profit-chart-labels"><span>Day 1</span><span>Day 2</span><span>Day 3</span><span>Day 4</span><span>Day 5</span></div>
     </section>
-    ${!currentUser || balanceCents <= 0 ? `
-      <section class="progress-empty-state">
-        <span class="progress-empty-icon" aria-hidden="true">↗</span>
-        <div><h2>Deposit before account tracking</h2><p>${currentUser ? "Your available balance is currently $0.00. An approved deposit will appear in your balance and activity." : "Log in and make a deposit to see your credited account balance and activity here."}</p></div>
-        <button class="button button-primary" type="button" data-progress-deposit>Make a deposit</button>
-      </section>` : `
-      <section class="progress-active-note"><strong>Your account balance is available</strong><span>The balance above reflects actual credited funds. The example below is not a forecast and does not change your balance.</span></section>`}
     <section class="projection-card" aria-labelledby="projection-heading">
-      <div class="projection-heading"><div><p class="eyebrow">Example only · USDT</p><h2 id="projection-heading">10.00 USDT illustrative scenario</h2></div><span class="projection-badge">1.8× assumption</span></div>
+      <div class="projection-heading"><div><p class="eyebrow">Five-day schedule · USD</p><h2 id="projection-heading">Calculation for a $10.00 start</h2></div><span class="projection-badge">5.3% daily growth</span></div>
       <div class="projection-table-wrap"><table class="projection-table">
-        <thead><tr><th>Cycle</th><th>Period</th><th>Opening</th><th>Illustrative amount</th><th>Assumed fee</th><th>Net example</th></tr></thead>
-        <tbody>${projection.map((row) => `<tr><td>${row.cycle}</td><td>Days ${(row.cycle - 1) * 3 + 1}–${row.cycle * 3}</td><td>${formatUsdt(row.openingCents)}</td><td>${formatUsdt(row.illustrativeCents)}</td><td class="projection-fee">−${formatUsdt(row.feeCents)}</td><td class="projection-net">${formatUsdt(row.netCents)}</td></tr>`).join("")}</tbody>
+        <thead><tr><th>Day</th><th>Opening</th><th>Daily growth</th><th>After growth</th><th>Fee · 1%</th><th>Net amount</th></tr></thead>
+        <tbody>${projection.map((row) => `<tr><td>Day ${row.day}</td><td>${formatCurrency(row.openingCents)}</td><td class="projection-net">+${formatCurrency(row.growthCents)}</td><td>${formatCurrency(row.postGrowthCents)}</td><td class="projection-fee">−${formatCurrency(row.feeCents)}</td><td class="projection-net">${formatCurrency(row.netCents)}</td></tr>`).join("")}</tbody>
       </table></div>
-      <div class="projection-summary"><span>Initial example <strong>${formatUsdt(1_000)}</strong></span><span>Assumed fees <strong>${formatUsdt(2_000)}</strong></span><span>Final example <strong>${formatUsdt(finalCents)}</strong></span></div>
+      <div class="projection-summary"><span>Starting amount <strong>${formatCurrency(1_000)}</strong></span><span>Total fees <strong>−${formatCurrency(projection.reduce((total, row) => total + row.feeCents, 0))}</strong></span><span>Net after day 5 <strong>${formatCurrency(finalCents)}</strong></span></div>
+      <p class="cycle-formula-note">The table calculates a $10.00 starting amount. A different cycle amount follows the same daily 5.3% growth, then a 1% fee on the amount after growth. Hourly earnings are credited to your available balance; the daily fee is recorded at the end of each 24-hour period.</p>
     </section>
+    ${cyclePanel}
     <div class="progress-page-actions"><a class="button button-secondary" href="index.html#activity">View account activity</a><a class="button button-secondary" href="assistant.html">Ask the assistant</a></div>`, "profit", currentUsername);
 
   document.querySelector<HTMLButtonElement>("[data-progress-deposit]")?.addEventListener("click", () => void showDepositFlow());
+  document.querySelectorAll<HTMLButtonElement>("[data-profit-start]").forEach((button) => {
+    button.addEventListener("click", () => showProfitStartFlow());
+  });
+  document.querySelector<HTMLButtonElement>("[data-profit-withdraw]")?.addEventListener("click", () => void showWithdrawalFlow());
+  if (activeCycle) {
+    profitCountdownTimer = window.setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((activeCycle.startedAtMs + 120 * 60 * 60 * 1000 - Date.now()) / (60 * 60 * 1000)));
+      const element = document.querySelector<HTMLElement>("[data-cycle-time-left]");
+      if (element) element.textContent = `${Math.floor(remaining / 24)}d ${remaining % 24}h`;
+    }, 60_000);
+  }
 }
 
 function renderAssistantPage() {
@@ -521,10 +608,12 @@ function renderAssistantPage() {
         <div class="assistant-suggestion-list">
           ${[
             "How do I make a deposit?",
+            "How does the first-deposit gift work?",
             "Which network should I choose?",
             "What if I send to the wrong network?",
             "How long does deposit review take?",
             "How do actual earnings get added?",
+            "How long is a profit cycle?",
             "Can I withdraw?",
             "How do I contact support?",
           ].map((suggestion) => `<button type="button" class="assistant-suggestion">${escapeHtml(suggestion)}</button>`).join("")}
@@ -611,10 +700,13 @@ function renderAssistantPage() {
       return { text: "Thanks for visiting Triplex. Contact support if you need help with an account or payment." };
     }
     if (/\b(help|what can you do|what can i ask)\b/.test(normalized)) {
-      return { text: "I can walk you through making a deposit, choosing the matching network, checking account activity, understanding the 3-day cycle calculations, transferring to another Triplex user, or contacting support. Choose a suggestion below or type your question." };
+      return { text: "I can walk you through making a deposit, choosing the matching network, checking account activity, understanding the five-day profit cycle, submitting a withdrawal request, transferring to another Triplex user, or contacting support. Choose a suggestion below or type your question." };
     }
     if (/\b(wrong network|wrong chain|sent to the wrong|wrong address)\b/.test(normalized)) {
       return { text: "Please contact Triplex support as soon as possible and include the asset, network, destination address, and transaction hash. Recovery depends on the network and receiving wallet and cannot be guaranteed, so please don’t send another payment until support has advised you.", link: { label: "Contact customer support", href: "contact.html" } };
+    }
+    if (/\b(first|initial).{0,20}(deposit|gift|bonus)\b|\b(deposit|gift|bonus).{0,20}(first|20 ?%)\b/.test(normalized)) {
+      return { text: "Eligible accounts receive a 20% gift bonus on their first approved deposit. The deposit screen previews the estimated bonus; the bonus is credited to your USD balance together with the deposit after approval. Each account can receive this bonus once." };
     }
     if (/\b(network|chain|which.*(send|choose)|send.*(usdt|usdc|crypto))\b/.test(normalized)) {
       return { text: "For a successful deposit, select the same asset and exact same network in Triplex and in your sending wallet. The deposit screen lists the networks currently available for each asset. Check the full destination address and network before confirming your transfer.", link: { label: "Open your dashboard", href: "index.html" } };
@@ -626,16 +718,19 @@ function renderAssistantPage() {
       return { text: "Deposit reviews usually take about 24 hours. If 24 hours have passed without an update, please message customer support and include your deposit details. You’ll also receive an in-app notification when your request is reviewed; approved deposits are then added to your USD balance.", link: { label: "Contact customer support", href: "contact.html" } };
     }
     if (/\b(actual )?earnings?\b|\b(per|each|every) cycle\b/.test(normalized)) {
-      return { text: "The cycle breakdown is calculated over 3-day periods: the opening amount is multiplied by 1.8, then the 4 USDT service fee is subtracted. For example, 10 USDT calculates to 18 USDT before the fee and 14 USDT net, which becomes the next cycle’s opening amount. Automatic cycle credits are not enabled in the account yet; balances currently update for approved deposits and completed transfers.", link: { label: "See the cycle breakdown", href: "profit.html" } };
+      return { text: "A profit cycle lasts five days. Earnings are calculated at 5.3% per day and credited in hourly portions. At the end of each 24-hour day, a 1% fee is deducted from the amount after growth, and that net amount is used as the next day's opening amount. Your activity shows each hourly credit and daily fee. Withdrawals and transfers are paused until the cycle completes.", link: { label: "View profit progress", href: "profit.html" } };
+    }
+    if (/\b(how long|duration|days?).*(profit|cycle)|(profit|cycle).*(how long|duration|days?)\b/.test(normalized)) {
+      return { text: "Each profit cycle runs for five days. The Profit progress page shows the current day, time remaining, earnings credited, and fees deducted. When day five is complete, the reserved starting amount returns to your available balance and withdrawals reopen.", link: { label: "View profit progress", href: "profit.html" } };
     }
     if (/\b(fee|charge|service charge|cost)\b/.test(normalized)) {
-      return { text: "The cycle breakdown lists a 4 USDT service fee for each cycle and shows how it affects the net amount. For information about fees that apply to your account, contact customer support.", link: { label: "See the cycle breakdown", href: "profit.html" } };
+      return { text: "The profit cycle deducts a 1% fee at the end of each 24-hour day. The fee is calculated from that day's amount after the 5.3% growth and appears as a separate red entry in account activity.", link: { label: "View profit progress", href: "profit.html" } };
     }
-    if (/\b(profit|earning|growth|return|1\.8|projection|progress)\b/.test(normalized)) {
-      return { text: "The Profit progress page shows five 3-day cycles in an easy-to-follow table. Each row lists the opening amount, amount after applying the 1.8× multiplier, 4 USDT service fee, and net amount carried into the next cycle.", link: { label: "View the cycle breakdown", href: "profit.html" } };
+    if (/\b(profit|earning|growth|return|5\.3|projection|progress)\b/.test(normalized)) {
+      return { text: "Profit progress shows a five-day calculation based on a $10 starting amount: 5.3% daily growth, followed by a 1% fee on the post-growth amount. Your selected amount is reserved for the five-day cycle; hourly earnings and daily fees appear in your activity as they are processed.", link: { label: "View profit progress", href: "profit.html" } };
     }
     if (/\b(withdraw|cash ?out)\b/.test(normalized)) {
-      return { text: "For the latest information about withdrawals, please contact Triplex customer support. The website’s withdrawal request process is not available yet.", link: { label: "Contact customer support", href: "contact.html" } };
+      return { text: "You can submit a withdrawal request from the dashboard. Choose the cryptocurrency and network, enter the USD amount (minimum $20), and carefully check the destination wallet address. The requested amount is reserved from your balance while an admin reviews and manually processes the payment. You’ll be notified when it is marked paid or rejected; if rejected, the reserved amount is returned to your balance.", link: { label: "Open your dashboard", href: "index.html" } };
     }
     if (/\b(transfer|send.*user|username)\b/.test(normalized)) {
       return { text: "You can transfer funds to another Triplex account from your dashboard. Enter the recipient’s username and amount, double-check the username, then confirm the transfer.", link: { label: "Open your dashboard", href: "index.html" } };
@@ -776,11 +871,17 @@ async function showDepositFlow() {
     title.textContent = "Preparing deposit";
     content.innerHTML = `<div class="deposit-loading"><span class="loader-orbit"></span><p>Generating ${escapeHtml(asset.code)} ${escapeHtml(network.name)} address…</p></div>`;
     let address: string;
+    let firstDepositBonusEligible = false;
     try {
-      const result = await apiRequest<{ address: string; networkName: string }>(
+      const result = await apiRequest<{
+        address: string;
+        networkName: string;
+        firstDepositBonus: { eligible: boolean; percentage: number };
+      }>(
         `/api/deposits/address?asset=${encodeURIComponent(asset.code)}&network=${encodeURIComponent(network.code)}`,
       );
       address = result.address;
+      firstDepositBonusEligible = result.firstDepositBonus.eligible;
     } catch (error) {
       content.innerHTML = `<button class="deposit-back" type="button">← Select another network</button><p class="deposit-error">${escapeHtml(errorMessage(error))}</p>`;
       content.querySelector<HTMLButtonElement>(".deposit-back")!.addEventListener("click", () => renderNetworks(asset));
@@ -796,6 +897,13 @@ async function showDepositFlow() {
       <div class="deposit-address"><code id="deposit-address">${escapeHtml(address)}</code><button id="copy-address" type="button">Copy</button></div>
       <label class="deposit-label" for="deposit-amount">Amount to deposit (USD)</label>
       <div class="amount-field"><span>$</span><input id="deposit-amount" type="number" min="10.00" step="0.01" inputmode="decimal" placeholder="10.00" required></div>
+      ${firstDepositBonusEligible
+        ? `<section class="deposit-gift-offer" aria-label="First deposit gift bonus">
+            <span class="deposit-gift-icon" aria-hidden="true">🎁</span>
+            <div class="deposit-gift-copy"><strong>FIRST DEPOSIT GIFT · 20% EXTRA</strong><span>Get a 20% bonus on your first approved deposit.</span><small id="deposit-bonus-estimate">Enter your deposit amount to preview your gift.</small></div>
+            <span class="deposit-gift-sparkle" aria-hidden="true">✦</span>
+          </section>`
+        : `<p class="deposit-gift-claimed">Your first-deposit gift bonus has already been claimed on this account.</p>`}
       <label class="deposit-label" for="receipt-file">Payment receipt <span>(optional)</span></label>
       <input class="receipt-file" id="receipt-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
       <p class="receipt-file-note" id="receipt-file-note">Upload a screenshot or PDF, up to 10 MB.</p>
@@ -817,6 +925,17 @@ async function showDepositFlow() {
     const fileInput = content.querySelector<HTMLInputElement>("#receipt-file")!;
     const fileNote = content.querySelector<HTMLParagraphElement>("#receipt-file-note")!;
     const preview = content.querySelector<HTMLDivElement>("#deposit-receipt-preview")!;
+    const depositAmountInput = content.querySelector<HTMLInputElement>("#deposit-amount")!;
+    const bonusEstimate = content.querySelector<HTMLElement>("#deposit-bonus-estimate");
+    const updateBonusEstimate = () => {
+      if (!bonusEstimate || !firstDepositBonusEligible) return;
+      const amountCents = amountToCents(depositAmountInput.value);
+      bonusEstimate.textContent = amountCents > 0
+        ? `Your gift: +${formatCurrency(Math.round(amountCents * 0.2))} USD`
+        : "Enter your deposit amount to preview your gift.";
+    };
+    depositAmountInput.addEventListener("input", updateBonusEstimate);
+    updateBonusEstimate();
     fileInput.addEventListener("change", async () => {
       const file = fileInput.files?.[0];
       uploadedReceipt = null;
@@ -849,7 +968,7 @@ async function showDepositFlow() {
 
     const completeButton = content.querySelector<HTMLButtonElement>("#deposit-complete")!;
     completeButton.addEventListener("click", () => {
-      const amountCents = amountToCents(content.querySelector<HTMLInputElement>("#deposit-amount")!.value);
+      const amountCents = amountToCents(depositAmountInput.value);
       if (amountCents < 1_000) {
         showNotice("Minimum deposit is $10.00", "Enter a deposit amount of at least $10.00.");
         return;
@@ -1078,9 +1197,10 @@ function renderAdmin() {
   frame(`
     <p class="eyebrow">Admin workspace</p>
     <h1>Admin dashboard</h1>
-    <p class="intro">Review deposit requests and manage member access.</p>
+    <p class="intro">Review deposit and withdrawal requests, and manage member access.</p>
     <div class="admin-shortcuts">
       <a class="admin-shortcut" href="receipts.html"><span class="admin-shortcut-icon">▤</span><strong>Deposit receipts</strong><small>${pendingReceiptCount} awaiting review</small><span aria-hidden="true">→</span></a>
+      <a class="admin-shortcut" href="withdrawals.html"><span class="admin-shortcut-icon">↓</span><strong>Withdrawals</strong><small>${pendingWithdrawalCount} awaiting review</small><span aria-hidden="true">→</span></a>
       <a class="admin-shortcut" href="members.html"><span class="admin-shortcut-icon">♙</span><strong>Members</strong><small>View member accounts</small><span aria-hidden="true">→</span></a>
     </div>`, "admin", currentUsername);
 }
@@ -1106,6 +1226,21 @@ interface AdminMember {
   email: string;
   role: "user" | "admin";
   isBanned: boolean;
+}
+
+interface AdminWithdrawal {
+  id: string;
+  uid: string;
+  userId: string;
+  username: string;
+  email: string;
+  amount: number;
+  amountCents: number;
+  asset: string;
+  network: string;
+  networkName: string;
+  walletAddress: string;
+  createdAt: { _seconds?: number; seconds?: number } | null;
 }
 
 function renderReceiptsPage() {
@@ -1157,6 +1292,145 @@ async function refreshAdminReceipts() {
   }
 }
 
+function renderWithdrawalsPage() {
+  frame(`
+    <p class="eyebrow">Admin workspace</p>
+    <h1>Withdrawal requests</h1>
+    <p class="intro">Verify the exact asset, network, requested USD amount, and destination address. Mark complete only after manually sending the payment.</p>
+    <section class="admin-list" aria-live="polite"><div id="admin-withdrawal-list" class="admin-list-content"><div class="deposit-loading"><span class="loader-orbit"></span><p>Loading withdrawal requests…</p></div></div></section>`,
+  "withdrawals", currentUsername);
+  void refreshAdminWithdrawals();
+}
+
+async function refreshAdminWithdrawals() {
+  const list = document.querySelector<HTMLDivElement>("#admin-withdrawal-list");
+  if (!list) return;
+  try {
+    const result = await apiRequest<{ withdrawals: AdminWithdrawal[] }>("/api/admin/withdrawals");
+    if (!document.body.contains(list)) return;
+    if (!result.withdrawals.length) {
+      list.innerHTML = '<div class="empty-state"><span class="empty-state-icon">✓</span><p>There are no pending withdrawal requests.</p></div>';
+      return;
+    }
+    list.innerHTML = result.withdrawals.map((withdrawal) => `
+      <article class="receipt-card">
+        <div class="receipt-card-heading"><div><p class="eyebrow">${escapeHtml(withdrawal.asset)} · ${escapeHtml(withdrawal.networkName)}</p><h2>@${escapeHtml(withdrawal.username || withdrawal.userId || "member")}</h2><p>${escapeHtml(withdrawal.email)}</p></div><strong class="receipt-amount">${formatCurrency(withdrawal.amountCents)} USD</strong></div>
+        <div class="withdrawal-review-details"><div><span>Wallet address</span><code>${escapeHtml(withdrawal.walletAddress)}</code></div><div><span>Request ID</span><code>${escapeHtml(withdrawal.id)}</code></div></div>
+        <div class="receipt-meta"><span>Submitted ${escapeHtml(formatTimestamp(withdrawal.createdAt))}</span><span>Reserved from member balance</span></div>
+        <div class="receipt-actions">
+          <button class="button button-secondary" type="button" data-copy-withdrawal-address="${escapeHtml(withdrawal.walletAddress)}">Copy wallet address</button>
+          <button class="button button-approve" type="button" data-complete-withdrawal="${escapeHtml(withdrawal.id)}">Confirm payment sent</button>
+          <button class="button button-reject" type="button" data-reject-withdrawal="${escapeHtml(withdrawal.id)}">Reject and refund</button>
+        </div>
+      </article>`).join("");
+    list.querySelectorAll<HTMLButtonElement>("[data-complete-withdrawal]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const withdrawal = result.withdrawals.find((item) => item.id === button.dataset.completeWithdrawal);
+        if (withdrawal) showWithdrawalCompletionDialog(withdrawal);
+      });
+    });
+    list.querySelectorAll<HTMLButtonElement>("[data-copy-withdrawal-address]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(button.dataset.copyWithdrawalAddress || "");
+          showNotice("Wallet address copied", "Compare the copied address with the request before sending payment.");
+        } catch {
+          showNotice("Could not copy address", "Select and copy the displayed wallet address manually.");
+        }
+      });
+    });
+    list.querySelectorAll<HTMLButtonElement>("[data-reject-withdrawal]").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (window.confirm("Reject this request? The reserved USD amount will be returned to the member's balance.")) {
+          void reviewWithdrawal(button.dataset.rejectWithdrawal || "", "reject");
+        }
+      });
+    });
+  } catch (error) {
+    if (document.body.contains(list)) list.innerHTML = `<p class="admin-error">${escapeHtml(errorMessage(error))}</p>`;
+  }
+}
+
+function showWithdrawalCompletionDialog(withdrawal: AdminWithdrawal) {
+  document.querySelector<HTMLElement>("#notice-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "notice-overlay";
+  overlay.className = "notice-overlay";
+  overlay.innerHTML = `
+    <section class="notice-card transfer-card withdrawal-completion-card" role="dialog" aria-modal="true" aria-labelledby="withdrawal-completion-title">
+      <button class="notice-close" type="button" aria-label="Close payment confirmation">×</button>
+      <p class="eyebrow">Record manual payment</p>
+      <h2 id="withdrawal-completion-title">Confirm payment sent</h2>
+      <p class="transfer-explainer">Only continue after you have sent the payment. Verify the amount, cryptocurrency, network, and full wallet address first.</p>
+      <div class="withdrawal-review-details">
+        <div><span>Requested amount</span><strong>${formatCurrency(withdrawal.amountCents)} USD</strong></div>
+        <div><span>Send as</span><strong>${escapeHtml(withdrawal.asset)} · ${escapeHtml(withdrawal.networkName)}</strong></div>
+        <div><span>Destination wallet</span><code>${escapeHtml(withdrawal.walletAddress)}</code></div>
+      </div>
+      <form id="withdrawal-completion-form">
+        <label for="paid-crypto-amount">Exact ${escapeHtml(withdrawal.asset)} amount sent</label>
+        <input id="paid-crypto-amount" type="text" inputmode="decimal" maxlength="80" autocomplete="off" placeholder="0.00000000" required>
+        <label for="withdrawal-transaction-hash">Blockchain transaction ID / hash</label>
+        <input id="withdrawal-transaction-hash" type="text" minlength="8" maxlength="200" autocomplete="off" placeholder="Paste transaction hash" required>
+        <label class="withdrawal-confirm-label"><input id="withdrawal-payment-confirmed" type="checkbox"> I confirm I have sent the payment to the exact address and network shown above.</label>
+        <button class="button button-approve transfer-submit" id="withdrawal-completion-submit" type="submit" disabled>Record payment and notify member</button>
+      </form>
+    </section>`;
+  const close = () => overlay.remove();
+  overlay.querySelector<HTMLButtonElement>(".notice-close")!.addEventListener("click", close);
+  document.body.append(overlay);
+
+  const form = overlay.querySelector<HTMLFormElement>("#withdrawal-completion-form")!;
+  const amountInput = overlay.querySelector<HTMLInputElement>("#paid-crypto-amount")!;
+  const hashInput = overlay.querySelector<HTMLInputElement>("#withdrawal-transaction-hash")!;
+  const confirmedInput = overlay.querySelector<HTMLInputElement>("#withdrawal-payment-confirmed")!;
+  const submit = overlay.querySelector<HTMLButtonElement>("#withdrawal-completion-submit")!;
+  const validate = () => {
+    const amount = amountInput.value.trim();
+    const hash = hashInput.value.trim();
+    submit.disabled = !/^\d+(?:\.\d{1,18})?$/.test(amount)
+      || !Number.isFinite(Number(amount))
+      || Number(amount) <= 0
+      || hash.length < 8
+      || hash.length > 200
+      || !confirmedInput.checked;
+  };
+  amountInput.addEventListener("input", validate);
+  hashInput.addEventListener("input", validate);
+  confirmedInput.addEventListener("change", validate);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    validate();
+    if (submit.disabled) return;
+    const paidCryptoAmount = amountInput.value.trim();
+    const transactionHash = hashInput.value.trim();
+    close();
+    void reviewWithdrawal(withdrawal.id, "complete", paidCryptoAmount, transactionHash);
+  });
+  amountInput.focus();
+}
+
+async function reviewWithdrawal(
+  withdrawalId: string,
+  action: "complete" | "reject",
+  paidCryptoAmount?: string,
+  transactionHash?: string,
+) {
+  try {
+    await apiRequest(`/api/admin/withdrawals/${encodeURIComponent(withdrawalId)}/${action}`, {
+      method: "POST",
+      body: action === "complete" ? { paidCryptoAmount, transactionHash } : {},
+    });
+    showNotice(
+      action === "complete" ? "Payment recorded" : "Withdrawal rejected",
+      action === "complete" ? "The member has been notified that payment was sent." : "The request was rejected and the reserved amount was returned to the member.",
+    );
+    await refreshAdminWithdrawals();
+  } catch (error) {
+    showNotice("Could not update withdrawal", errorMessage(error));
+  }
+}
+
 async function viewAdminReceipt(uid: string, receiptId: string) {
   const receiptWindow = window.open("about:blank", "_blank");
   try {
@@ -1176,7 +1450,7 @@ async function viewAdminReceipt(uid: string, receiptId: string) {
 }
 
 async function reviewReceipt(uid: string, receiptId: string, approve: boolean, amountCents = 0) {
-  if (approve && !window.confirm(`Approve this deposit? This will immediately credit ${formatCurrency(amountCents)} to the member's USD balance.`)) return;
+  if (approve && !window.confirm(`Approve this ${formatCurrency(amountCents)} deposit? If it is the member's first approved deposit, an additional 20% gift bonus will also be credited. Eligibility is checked automatically.`)) return;
   let rejectionMessage = "";
   if (!approve) {
     const response = window.prompt("Optional message to include with the rejection:", "");
@@ -1184,11 +1458,19 @@ async function reviewReceipt(uid: string, receiptId: string, approve: boolean, a
     rejectionMessage = response;
   }
   try {
-    await apiRequest(`/api/admin/receipts/${encodeURIComponent(receiptId)}/${approve ? "approve" : "reject"}`, {
+    const result = await apiRequest<{ firstDepositBonusCents?: number }>(`/api/admin/receipts/${encodeURIComponent(receiptId)}/${approve ? "approve" : "reject"}`, {
       method: "POST",
       body: { uid, ...(approve ? {} : { message: rejectionMessage }) },
     });
-    showNotice(approve ? "Deposit approved" : "Deposit rejected", approve ? "The deposit was reviewed and the member's balance has been credited." : "The member has been notified of the decision.");
+    const bonusCents = Number.isSafeInteger(result.firstDepositBonusCents) ? result.firstDepositBonusCents || 0 : 0;
+    showNotice(
+      approve ? "Deposit approved" : "Deposit rejected",
+      approve
+        ? bonusCents > 0
+          ? `The member's balance was credited with the deposit and a ${formatCurrency(bonusCents)} first-deposit gift bonus.`
+          : "The member's balance has been credited and the member has been notified."
+        : "The member has been notified of the decision.",
+    );
     await refreshAdminReceipts();
   } catch (error) {
     showNotice("Could not review deposit", errorMessage(error));
@@ -1299,6 +1581,10 @@ function showNotice(title: string, message: string) {
 }
 
 function showTransferCard() {
+  if (activeProfitCycleId) {
+    showNotice("Transfer temporarily unavailable", "Transfers are paused while your five-day profit cycle is active. You can transfer again after the cycle completes.");
+    return;
+  }
   const previous = document.querySelector<HTMLElement>("#notice-overlay");
   previous?.remove();
   const overlay = document.createElement("div");
@@ -1394,6 +1680,180 @@ function showTransferCard() {
   overlay.querySelector<HTMLButtonElement>(".notice-close")!.focus();
 }
 
+function showProfitStartFlow() {
+  if (!currentUser) {
+    showNotice("Sign in to start a cycle", "Log in and deposit funds before starting a profit cycle.");
+    return;
+  }
+  if (activeProfitCycleId) {
+    showNotice("A cycle is already active", "Complete your current five-day cycle before starting another.");
+    return;
+  }
+  if (balanceCents <= 0) {
+    showNotice("No funds available", "Deposit funds before starting a profit cycle.");
+    return;
+  }
+  document.querySelector<HTMLElement>("#notice-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "notice-overlay";
+  overlay.className = "notice-overlay";
+  overlay.innerHTML = `
+    <section class="notice-card transfer-card" role="dialog" aria-modal="true" aria-labelledby="profit-start-title">
+      <button class="notice-close" type="button" aria-label="Dismiss cycle form">×</button>
+      <img class="notice-logo" src="${logoUrl}" alt="Triplex">
+      <p class="eyebrow">Five-day profit cycle</p>
+      <h2 id="profit-start-title">Choose an amount to grow</h2>
+      <p class="transfer-explainer">The selected amount is reserved for five days. Earnings are credited hourly; the 1% fee is deducted at the end of each day from the amount after growth. Withdrawals and transfers are paused until the cycle completes.</p>
+      <p class="withdrawal-balance">Available balance: <strong>${formatCurrency(balanceCents)} USD</strong></p>
+      <form id="profit-start-form">
+        <label for="profit-start-amount">Cycle starting amount (USD)</label>
+        <div class="amount-field"><span aria-hidden="true">$</span><input id="profit-start-amount" type="number" min="0.01" max="${(balanceCents / 100).toFixed(2)}" step="0.01" inputmode="decimal" placeholder="10.00" required></div>
+        <button class="button button-primary transfer-submit" id="profit-start-submit" type="submit" disabled>Start five-day cycle</button>
+      </form>
+    </section>`;
+  const close = () => overlay.remove();
+  overlay.querySelector<HTMLButtonElement>(".notice-close")!.addEventListener("click", close);
+  document.body.append(overlay);
+  const form = overlay.querySelector<HTMLFormElement>("#profit-start-form")!;
+  const amountInput = overlay.querySelector<HTMLInputElement>("#profit-start-amount")!;
+  const submit = overlay.querySelector<HTMLButtonElement>("#profit-start-submit")!;
+  const validate = () => {
+    const amountCents = amountToCents(amountInput.value);
+    submit.disabled = amountCents <= 0 || amountCents > balanceCents || !currentUser || Boolean(activeProfitCycleId);
+  };
+  amountInput.addEventListener("input", validate);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    validate();
+    if (submit.disabled) return;
+    const amountCents = amountToCents(amountInput.value);
+    if (!window.confirm(`Start a five-day profit cycle using ${formatCurrency(amountCents)}? This amount will be reserved until the cycle is complete.`)) return;
+    submit.disabled = true;
+    submit.textContent = "Starting cycle…";
+    try {
+      await apiRequest("/api/profits/start", {
+        method: "POST",
+        body: { amountCents, requestId: crypto.randomUUID() },
+      });
+      close();
+      showNotice("Profit cycle started", "Your five-day cycle is active. Hourly earnings and daily fees will appear in your account activity.");
+    } catch (error) {
+      submit.disabled = false;
+      submit.textContent = "Start five-day cycle";
+      showNotice("Could not start profit cycle", errorMessage(error));
+    }
+  });
+  overlay.querySelector<HTMLButtonElement>(".notice-close")!.focus();
+}
+
+async function showWithdrawalFlow() {
+  if (!currentUser) {
+    showNotice("Sign in to withdraw", "Log in to submit a withdrawal request.");
+    return;
+  }
+  if (activeProfitCycleId) {
+    showNotice("Profit cycle in progress", "Withdrawals are unavailable while your five-day profit cycle is active. You can request a withdrawal after the cycle completes.");
+    return;
+  }
+  if (balanceCents <= 0) {
+    showNotice("No funds available", "Your current balance is $0.00. Deposit funds before requesting a withdrawal.");
+    return;
+  }
+  if (balanceCents < 2_000) {
+    showNotice("Minimum withdrawal is $20.00", `Your current available balance is ${formatCurrency(balanceCents)}. Add funds until your available balance reaches at least $20.00 to request a withdrawal.`);
+    return;
+  }
+  let assets: DepositAsset[];
+  try {
+    const options = await apiRequest<{ assets: DepositAsset[] }>("/api/withdrawals/options");
+    assets = options.assets.filter((asset) => asset.networks.length > 0);
+  } catch (error) {
+    showNotice("Withdrawal options unavailable", errorMessage(error));
+    return;
+  }
+  if (!assets.length) {
+    showNotice("Withdrawals unavailable", "No configured cryptocurrency networks are available. Please contact customer support.");
+    return;
+  }
+
+  document.querySelector<HTMLElement>("#notice-overlay")?.remove();
+  const overlay = document.createElement("div");
+  overlay.id = "notice-overlay";
+  overlay.className = "notice-overlay";
+  overlay.innerHTML = `
+    <section class="notice-card transfer-card withdrawal-card" role="dialog" aria-modal="true" aria-labelledby="withdrawal-title">
+      <button class="notice-close" type="button" aria-label="Dismiss withdrawal panel">×</button>
+      <img class="notice-logo" src="${logoUrl}" alt="Triplex">
+      <p class="eyebrow">Withdrawal request</p>
+      <h2 id="withdrawal-title">Withdraw to your crypto wallet</h2>
+      <p class="transfer-explainer">Minimum withdrawal: $20.00 USD. Your request is in USD; an admin will determine and record the crypto amount sent. The requested USD amount is reserved while your payment is reviewed and manually processed.</p>
+      <form id="withdrawal-form">
+        <label for="withdrawal-asset">Cryptocurrency</label>
+        <select id="withdrawal-asset" required>${assets.map((asset) => `<option value="${escapeHtml(asset.code)}">${escapeHtml(asset.name)} (${escapeHtml(asset.code)})</option>`).join("")}</select>
+        <label for="withdrawal-network">Network</label>
+        <select id="withdrawal-network" required></select>
+        <label for="withdrawal-amount">Amount to withdraw (USD)</label>
+        <div class="amount-field"><span aria-hidden="true">$</span><input id="withdrawal-amount" name="amount" type="number" min="20.00" max="${(balanceCents / 100).toFixed(2)}" step="0.01" inputmode="decimal" placeholder="20.00" required></div>
+        <label for="withdrawal-address">Destination wallet address</label>
+        <input class="withdrawal-address" id="withdrawal-address" name="walletAddress" type="text" autocomplete="off" minlength="20" maxlength="200" placeholder="Paste your wallet address" required>
+        <div class="deposit-warning withdrawal-warning"><strong>Check the address and network carefully</strong><span>Select the network that matches your wallet exactly and verify every character in the destination address. Crypto sent to a wrong address or network may not be recoverable.</span></div>
+        <p class="withdrawal-balance">Available balance: <strong>${formatCurrency(balanceCents)} USD</strong></p>
+        <button class="button button-primary transfer-submit" id="withdrawal-submit" type="submit" disabled>Submit withdrawal request</button>
+      </form>
+    </section>`;
+  const close = () => overlay.remove();
+  overlay.querySelector<HTMLButtonElement>(".notice-close")!.addEventListener("click", close);
+  document.body.append(overlay);
+
+  const form = overlay.querySelector<HTMLFormElement>("#withdrawal-form")!;
+  const assetSelect = overlay.querySelector<HTMLSelectElement>("#withdrawal-asset")!;
+  const networkSelect = overlay.querySelector<HTMLSelectElement>("#withdrawal-network")!;
+  const amountInput = overlay.querySelector<HTMLInputElement>("#withdrawal-amount")!;
+  const addressInput = overlay.querySelector<HTMLInputElement>("#withdrawal-address")!;
+  const submit = overlay.querySelector<HTMLButtonElement>("#withdrawal-submit")!;
+  const fillNetworks = () => {
+    const selected = assets.find((asset) => asset.code === assetSelect.value);
+    networkSelect.innerHTML = (selected?.networks || []).map((network) =>
+      `<option value="${escapeHtml(network.code)}">${escapeHtml(network.name)}</option>`).join("");
+    validate();
+  };
+  const validate = () => {
+    const amountCents = amountToCents(amountInput.value);
+    const address = addressInput.value.trim();
+    submit.disabled = !currentUser || amountCents < 2_000 || amountCents > balanceCents
+      || address.length < 20 || address.length > 200 || /\s/.test(address) || !networkSelect.value;
+  };
+  assetSelect.addEventListener("change", fillNetworks);
+  amountInput.addEventListener("input", validate);
+  addressInput.addEventListener("input", validate);
+  fillNetworks();
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    validate();
+    if (submit.disabled || !currentUser) return;
+    const amountCents = amountToCents(amountInput.value);
+    const asset = assetSelect.value;
+    const network = networkSelect.value;
+    const walletAddress = addressInput.value.trim();
+    if (!window.confirm(`Submit a $${(amountCents / 100).toFixed(2)} USD withdrawal in ${asset} on ${networkSelect.selectedOptions[0]?.textContent} to:\n\n${walletAddress}\n\nThe amount will be reserved from your balance while the request is reviewed.`)) return;
+    submit.disabled = true;
+    submit.textContent = "Submitting request…";
+    try {
+      await apiRequest("/api/withdrawals", {
+        method: "POST",
+        body: { amountCents, asset, network, walletAddress, requestId: crypto.randomUUID() },
+      });
+      close();
+      showNotice("Withdrawal request submitted", "The requested amount has been reserved while an admin reviews and manually processes your payment. You’ll receive a notification when the request is completed or rejected.");
+    } catch (error) {
+      submit.disabled = false;
+      submit.textContent = "Submit withdrawal request";
+      showNotice("Could not submit withdrawal request", errorMessage(error));
+    }
+  });
+  overlay.querySelector<HTMLButtonElement>(".notice-close")!.focus();
+}
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -1424,10 +1884,14 @@ function stopLiveSubscriptions() {
   stopProfileWatch?.();
   stopNotificationsWatch?.();
   stopReceiptsWatch?.();
+  stopWithdrawalsWatch?.();
+  stopProfitCycleWatch?.();
   stopActivityWatch?.();
   stopProfileWatch = null;
   stopNotificationsWatch = null;
   stopReceiptsWatch = null;
+  stopWithdrawalsWatch = null;
+  stopProfitCycleWatch = null;
   stopActivityWatch = null;
 }
 
@@ -1440,17 +1904,21 @@ function startLiveSubscriptions(user: User) {
     currentRole = profile.role;
     currentUsername = profile.username || null;
     balanceCents = profile.balanceCents;
+    const cycleChanged = activeProfitCycleId !== profile.activeProfitCycleId;
+    activeProfitCycleId = profile.activeProfitCycleId;
     if (profile.isBanned) {
       renderBannedScreen();
       return;
     }
-    if (roleChanged && ["admin", "receipts", "members"].includes(page) && currentRole !== "admin") {
+    if (roleChanged && ["admin", "receipts", "withdrawals", "members"].includes(page) && currentRole !== "admin") {
       window.location.replace("index.html");
       return;
     }
     const balanceValue = document.querySelector<HTMLElement>("#balance-value");
     if (balanceValue && balanceVisible) balanceValue.textContent = formatCurrency(balanceCents);
     if (page === "profit" && balanceChanged) renderProfitPage();
+    if (page === "profit" && cycleChanged) renderProfitPage();
+    if (page === "dashboard" && balanceChanged) updateBalanceGrowth();
     if (roleChanged && currentRole === "admin" && document.querySelector(".app-shell")) {
       window.location.reload();
     }
@@ -1468,6 +1936,12 @@ function startLiveSubscriptions(user: User) {
       updateReceiptBadge();
       if (countChanged && page === "receipts") void refreshAdminReceipts();
     }, (error) => showNotice("Could not sync deposit requests", error.message));
+    stopWithdrawalsWatch = subscribePendingWithdrawals((count) => {
+      const countChanged = pendingWithdrawalCount !== count;
+      pendingWithdrawalCount = count;
+      updateWithdrawalBadge();
+      if (countChanged && page === "withdrawals") void refreshAdminWithdrawals();
+    }, (error) => showNotice("Could not sync withdrawal requests", error.message));
   }
   if (page === "dashboard") {
     stopActivityWatch = subscribeAccountActivity(user.uid, (items) => {
@@ -1475,6 +1949,18 @@ function startLiveSubscriptions(user: User) {
       renderActivity();
     }, (error) => showNotice("Could not load account activity", error.message));
   }
+  stopProfitCycleWatch = subscribeProfitCycle(user.uid, (cycle) => {
+    if (currentProfitCycle?.id === cycle?.id
+      && currentProfitCycle?.status === cycle?.status
+      && currentProfitCycle?.dayNumber === cycle?.dayNumber
+      && currentProfitCycle?.hourInDay === cycle?.hourInDay
+      && currentProfitCycle?.currentAmountCents === cycle?.currentAmountCents
+      && currentProfitCycle?.totalProfitCents === cycle?.totalProfitCents
+      && currentProfitCycle?.totalFeeCents === cycle?.totalFeeCents) return;
+    currentProfitCycle = cycle;
+    if (page === "profit") renderProfitPage();
+    if (page === "dashboard") updateBalanceGrowth();
+  }, (error) => showNotice("Could not sync your profit cycle", error.message));
 }
 
 async function loadAuthenticatedPage(user: User | null) {
@@ -1482,12 +1968,15 @@ async function loadAuthenticatedPage(user: User | null) {
   notifications = [];
   accountActivity = [];
   pendingReceiptCount = 0;
+  pendingWithdrawalCount = 0;
+  currentProfitCycle = null;
+  activeProfitCycleId = null;
   currentUser = user;
   currentUsername = null;
   currentRole = "user";
   balanceCents = 0;
   try {
-    const adminPage = ["admin", "receipts", "members"].includes(page);
+    const adminPage = ["admin", "receipts", "withdrawals", "members"].includes(page);
     if (adminPage && !user) {
       window.location.replace("login.html");
       return;
@@ -1510,6 +1999,7 @@ async function loadAuthenticatedPage(user: User | null) {
         return;
       }
       const currentProfile = await getUserProfile(user.uid);
+      activeProfitCycleId = currentProfile?.activeProfitCycleId || null;
       if (currentProfile?.isBanned) {
         renderBannedScreen();
         return;
@@ -1531,6 +2021,8 @@ async function loadAuthenticatedPage(user: User | null) {
       renderAdmin();
     } else if (page === "receipts") {
       renderReceiptsPage();
+    } else if (page === "withdrawals") {
+      renderWithdrawalsPage();
     } else if (page === "members") {
       renderMembersPage();
     } else {

@@ -15,6 +15,8 @@ const distRoot = path.resolve(root, "dist");
 const port = Number(process.env.PORT) || 10000;
 const maxJsonBytes = 128 * 1024;
 const maxReceiptBytes = 10 * 1024 * 1024;
+const profitCycleHourMs = 60 * 60 * 1000;
+const profitCycleHours = 5 * 24;
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 let firebaseReady = false;
 let auth = null;
@@ -175,6 +177,15 @@ function notificationRef(uid) {
   return userRef(uid).collection("notifications").doc();
 }
 
+async function hasApprovedDeposit(uid) {
+  const [receipts, legacyReceipts] = await Promise.all([
+    db.collection("receipts").where("uid", "==", uid).get(),
+    userRef(uid).collection("receipts").where("status", "==", "approved").get(),
+  ]);
+  return receipts.docs.some((receipt) => receipt.data().status === "approved")
+    || !legacyReceipts.empty;
+}
+
 function publicProfile(uid, data) {
   return {
     uid,
@@ -183,6 +194,7 @@ function publicProfile(uid, data) {
     role: data.role === "admin" ? "admin" : "user",
     balanceCents: Number.isSafeInteger(data.balanceCents) && data.balanceCents >= 0 ? data.balanceCents : 0,
     isBanned: data.isBanned === true,
+    activeProfitCycleId: typeof data.activeProfitCycleId === "string" ? data.activeProfitCycleId : null,
   };
 }
 
@@ -378,6 +390,161 @@ async function migrateLegacyReceipts() {
   }
 }
 
+function profitDay(openingCents) {
+  const profitCents = Math.round(openingCents * 0.053);
+  const postGrowthCents = openingCents + profitCents;
+  const feeCents = Math.round(postGrowthCents * 0.01);
+  return { profitCents, feeCents, netCents: postGrowthCents - feeCents };
+}
+
+async function processProfitCycle(cycleRef) {
+  const now = Date.now();
+  await db.runTransaction(async (transaction) => {
+    const cycleSnapshot = await transaction.get(cycleRef);
+    const cycle = cycleSnapshot.data();
+    if (!cycleSnapshot.exists || cycle.status !== "active") return;
+    if (
+      typeof cycle.uid !== "string"
+      || !Number.isSafeInteger(cycle.lastAccruedAtMs)
+      || !Number.isSafeInteger(cycle.dayNumber)
+      || !Number.isSafeInteger(cycle.hourInDay)
+      || !Number.isSafeInteger(cycle.dailyOpeningCents)
+    ) {
+      throw new Error(`Profit cycle ${cycleRef.id} has invalid state.`);
+    }
+    const elapsedHours = Math.min(
+      profitCycleHours,
+      Math.floor((now - cycle.lastAccruedAtMs) / profitCycleHourMs),
+    );
+    if (elapsedHours <= 0) return;
+    const profileRef = userRef(cycle.uid);
+    const profileSnapshot = await transaction.get(profileRef);
+    if (!profileSnapshot.exists) throw new Error(`Profit cycle ${cycleRef.id} has no member profile.`);
+    const profile = profileSnapshot.data();
+    let balanceCents = Number.isSafeInteger(profile.balanceCents) && profile.balanceCents >= 0
+      ? profile.balanceCents
+      : 0;
+    let lastAccruedAtMs = cycle.lastAccruedAtMs;
+    let dayNumber = cycle.dayNumber;
+    let hourInDay = cycle.hourInDay;
+    let dailyOpeningCents = cycle.dailyOpeningCents;
+    let dailyEarnedCents = cycle.dailyEarnedCents || 0;
+    let currentAmountCents = cycle.currentAmountCents;
+    let totalProfitCents = cycle.totalProfitCents || 0;
+    let totalFeeCents = cycle.totalFeeCents || 0;
+    let status = "active";
+    let completed = false;
+
+    for (let step = 0; step < elapsedHours && status === "active"; step += 1) {
+      hourInDay += 1;
+      const { profitCents } = profitDay(dailyOpeningCents);
+      const earningsTarget = Math.round((profitCents * hourInDay) / 24);
+      const hourlyEarnings = earningsTarget - dailyEarnedCents;
+      if (hourlyEarnings > 0) {
+        balanceCents += hourlyEarnings;
+        totalProfitCents += hourlyEarnings;
+        dailyEarnedCents += hourlyEarnings;
+        transaction.create(userRef(cycle.uid).collection("profitActivity").doc(`${cycleRef.id}_${dayNumber}_${hourInDay}_profit`), {
+          uid: cycle.uid,
+          cycleId: cycleRef.id,
+          type: "profit",
+          amountCents: hourlyEarnings,
+          dayNumber,
+          hourInDay,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+      if (hourInDay === 24) {
+        const { feeCents, netCents } = profitDay(dailyOpeningCents);
+        if (feeCents > 0) {
+          balanceCents -= feeCents;
+          totalFeeCents += feeCents;
+          transaction.create(userRef(cycle.uid).collection("profitActivity").doc(`${cycleRef.id}_${dayNumber}_fee`), {
+            uid: cycle.uid,
+            cycleId: cycleRef.id,
+            type: "fee",
+            amountCents: -feeCents,
+            dayNumber,
+            hourInDay,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+        currentAmountCents = netCents;
+        if (dayNumber === 5) {
+          const principalCents = cycle.principalCents;
+          if (!Number.isSafeInteger(principalCents) || principalCents <= 0) {
+            throw new Error(`Profit cycle ${cycleRef.id} has an invalid principal.`);
+          }
+          balanceCents += principalCents;
+          if (!Number.isSafeInteger(balanceCents)) throw new Error(`Profit cycle ${cycleRef.id} exceeded the supported balance.`);
+          status = "completed";
+          completed = true;
+          transaction.create(notificationRef(cycle.uid), {
+            title: "Five-day cycle completed",
+            message: "Your five-day profit cycle is complete. Your reserved starting amount has returned to your available USD balance, and withdrawals are now available.",
+            kind: "profit",
+            metadata: { cycleId: cycleRef.id, status },
+            readAt: null,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          transaction.update(profileRef, {
+            balanceCents,
+            activeProfitCycleId: null,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        } else {
+          dayNumber += 1;
+          hourInDay = 0;
+          dailyOpeningCents = netCents;
+          dailyEarnedCents = 0;
+        }
+      }
+      lastAccruedAtMs += profitCycleHourMs;
+    }
+
+    if (!completed) {
+      if (!Number.isSafeInteger(balanceCents) || balanceCents < 0) {
+        throw new Error(`Profit cycle ${cycleRef.id} produced an invalid member balance.`);
+      }
+      transaction.update(profileRef, { balanceCents, updatedAt: FieldValue.serverTimestamp() });
+    }
+    transaction.update(cycleRef, {
+      status,
+      currentAmountCents,
+      totalProfitCents,
+      totalFeeCents,
+      dayNumber,
+      hourInDay,
+      dailyOpeningCents,
+      dailyEarnedCents,
+      lastAccruedAtMs,
+      completedAt: completed ? FieldValue.serverTimestamp() : null,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  });
+}
+
+let profitCycleWorkerRunning = false;
+async function processDueProfitCycles() {
+  if (!firebaseReady || profitCycleWorkerRunning) return;
+  profitCycleWorkerRunning = true;
+  try {
+    let cursor = null;
+    for (;;) {
+      let cycleQuery = db.collection("profitCycles").where("status", "==", "active").limit(100);
+      if (cursor) cycleQuery = cycleQuery.startAfter(cursor);
+      const activeCycles = await cycleQuery.get();
+      await Promise.all(activeCycles.docs.map((cycle) => processProfitCycle(cycle.ref)));
+      if (activeCycles.size < 100) break;
+      cursor = activeCycles.docs[activeCycles.docs.length - 1];
+    }
+  } catch (error) {
+    console.error("Could not process due profit cycle entries.", error);
+  } finally {
+    profitCycleWorkerRunning = false;
+  }
+}
+
 async function routeApi(request, response, url, corsHeaders) {
   const method = request.method || "GET";
   const pathname = url.pathname;
@@ -394,6 +561,14 @@ async function routeApi(request, response, url, corsHeaders) {
           ...network,
           available: Boolean(getWallet(asset.code, network.code)),
         })),
+      })),
+    });
+  }
+  if (method === "GET" && pathname === "/api/withdrawals/options") {
+    return send(200, {
+      assets: depositAssets.map((asset) => ({
+        ...asset,
+        networks: asset.networks.map((network) => ({ ...network, available: true })),
       })),
     });
   }
@@ -449,13 +624,23 @@ async function routeApi(request, response, url, corsHeaders) {
     return send(200, { uid: legacy.data()?.uid || null });
   }
   if (pathname === "/api/deposits/address" && method === "GET") {
-    const { profile } = await authenticate(request);
+    const { identity, profile } = await authenticate(request);
     const asset = (url.searchParams.get("asset") || "").toUpperCase();
     const network = (url.searchParams.get("network") || "").toUpperCase();
     const details = getNetwork(asset, network);
     const wallet = getWallet(asset, network);
     if (!details || !wallet) fail(404, "This deposit network is not available yet.");
-    return send(200, { asset, network, networkName: details.name, address: wallet.address, username: profile.username });
+    const bonusEligible = profile.firstDepositBonusClaimed === true
+      ? false
+      : !(await hasApprovedDeposit(identity.uid));
+    return send(200, {
+      asset,
+      network,
+      networkName: details.name,
+      address: wallet.address,
+      username: profile.username,
+      firstDepositBonus: { eligible: bonusEligible, percentage: 20 },
+    });
   }
   if (pathname === "/api/uploads/sign" && method === "POST") {
     const { identity } = await authenticate(request);
@@ -568,6 +753,281 @@ async function routeApi(request, response, url, corsHeaders) {
     const submitted = await receiptCollection.doc(receiptId).get();
     return send(created ? 201 : 200, { receiptId, status: submitted.data()?.status || "pending" });
   }
+  if (pathname === "/api/profits/start" && method === "POST") {
+    const { identity, profile } = await authenticate(request);
+    checkRateLimit(`profit-cycle:${identity.uid}`, 5, 24 * 60 * 60 * 1000);
+    const body = await readJson(request);
+    if (!validateAmount(body.amountCents)) fail(400, "Choose a valid amount to grow.");
+    if (typeof body.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.requestId)) fail(400, "Invalid profit cycle request ID.");
+    const cycleCollection = db.collection("profitCycles");
+    const newCycleRef = cycleCollection.doc();
+    const requestKeyRef = userRef(identity.uid).collection("profitCycleStartKeys").doc(body.requestId);
+    const userNotification = notificationRef(identity.uid);
+    let cycleId = "";
+    let created = false;
+    await db.runTransaction(async (transaction) => {
+      created = false;
+      const [profileSnapshot, requestKey] = await Promise.all([
+        transaction.get(userRef(identity.uid)),
+        transaction.get(requestKeyRef),
+      ]);
+      const user = profileSnapshot.data();
+      if (!profileSnapshot.exists || user?.isBanned === true) fail(403, "This account cannot start a profit cycle.");
+      if (requestKey.exists) {
+        cycleId = requestKey.data()?.cycleId;
+        const existingCycleRef = cycleId ? cycleCollection.doc(cycleId) : null;
+        const existingCycle = existingCycleRef ? await transaction.get(existingCycleRef) : null;
+        if (!existingCycle?.exists || existingCycle.data()?.principalCents !== body.amountCents) {
+          fail(409, "This cycle request ID has already been used.");
+        }
+        return;
+      }
+      if (typeof user.activeProfitCycleId === "string" && user.activeProfitCycleId) {
+        fail(409, "Complete your current five-day profit cycle before starting another.");
+      }
+      const balanceCents = Number.isSafeInteger(user.balanceCents) && user.balanceCents >= 0
+        ? user.balanceCents
+        : 0;
+      if (balanceCents < body.amountCents) fail(409, "Your available balance is too low for this amount.");
+      cycleId = newCycleRef.id;
+      const now = Date.now();
+      transaction.update(userRef(identity.uid), {
+        balanceCents: balanceCents - body.amountCents,
+        activeProfitCycleId: cycleId,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(newCycleRef, {
+        uid: identity.uid,
+        userId: profile.username,
+        principalCents: body.amountCents,
+        currentAmountCents: body.amountCents,
+        dailyOpeningCents: body.amountCents,
+        dailyEarnedCents: 0,
+        totalProfitCents: 0,
+        totalFeeCents: 0,
+        dayNumber: 1,
+        hourInDay: 0,
+        startedAtMs: now,
+        lastAccruedAtMs: now,
+        status: "active",
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        completedAt: null,
+      });
+      transaction.create(requestKeyRef, {
+        cycleId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(userNotification, {
+        title: "Five-day profit cycle started",
+        message: "Your five-day cycle has started. Hourly earnings are calculated from a 5.3% daily rate; a 1% fee is deducted from the post-growth amount at the end of each day.",
+        kind: "profit",
+        metadata: { cycleId, status: "active" },
+        readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      created = true;
+    });
+    const cycle = await cycleCollection.doc(cycleId).get();
+    return send(created ? 201 : 200, { cycleId, status: cycle.data()?.status || "active" });
+  }
+  if (pathname === "/api/withdrawals" && method === "POST") {
+    const { identity, profile } = await authenticate(request);
+    checkRateLimit(`withdrawal:${identity.uid}`, 5, 60 * 60 * 1000);
+    const body = await readJson(request);
+    const asset = typeof body.asset === "string" ? body.asset.toUpperCase() : "";
+    const network = typeof body.network === "string" ? body.network.toUpperCase() : "";
+    const walletAddress = typeof body.walletAddress === "string" ? body.walletAddress.trim() : "";
+    if (!getNetwork(asset, network)) fail(400, "Select a supported cryptocurrency and network.");
+    if (!validateAmount(body.amountCents) || body.amountCents < 2_000) fail(400, "The minimum withdrawal is $20.00.");
+    if (typeof body.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.requestId)) fail(400, "Invalid withdrawal request ID.");
+    if (walletAddress.length < 20 || walletAddress.length > 200 || /\s/.test(walletAddress)) {
+      fail(400, "Enter a valid wallet address without spaces.");
+    }
+
+    const withdrawalCollection = db.collection("withdrawals");
+    const newWithdrawalRef = withdrawalCollection.doc();
+    const requestKeyRef = userRef(identity.uid).collection("withdrawalRequestKeys").doc(body.requestId);
+    const adminUsers = await db.collection("users").where("role", "==", "admin").limit(100).get();
+    const adminNotifications = adminUsers.docs
+      .filter((admin) => admin.data().isBanned !== true)
+      .map((admin) => notificationRef(admin.id));
+    const userNotification = notificationRef(identity.uid);
+    let withdrawalId = "";
+    let created = false;
+    await db.runTransaction(async (transaction) => {
+      created = false;
+      const [profileSnapshot, requestKey] = await Promise.all([
+        transaction.get(userRef(identity.uid)),
+        transaction.get(requestKeyRef),
+      ]);
+      const user = profileSnapshot.data();
+      if (!profileSnapshot.exists || user?.isBanned === true) fail(403, "This account cannot request a withdrawal.");
+      if (typeof user.activeProfitCycleId === "string" && user.activeProfitCycleId) {
+        fail(409, "Withdrawals are available after your active five-day profit cycle is complete.");
+      }
+      if (requestKey.exists) {
+        withdrawalId = requestKey.data()?.withdrawalId;
+        const existingRef = withdrawalId ? withdrawalCollection.doc(withdrawalId) : null;
+        const existingSnapshot = existingRef ? await transaction.get(existingRef) : null;
+        if (!existingSnapshot?.exists) fail(409, "This withdrawal request could not be verified. Please contact support.");
+        const existing = existingSnapshot.data();
+        if (
+          existing.uid !== identity.uid
+          || existing.amountCents !== body.amountCents
+          || existing.asset !== asset
+          || existing.network !== network
+          || existing.walletAddress !== walletAddress
+        ) fail(409, "This request ID has already been used for a different withdrawal.");
+        return;
+      }
+
+      const balanceCents = Number.isSafeInteger(user.balanceCents) && user.balanceCents >= 0
+        ? user.balanceCents
+        : 0;
+      if (balanceCents < body.amountCents) fail(409, "Your available balance is too low.");
+      withdrawalId = newWithdrawalRef.id;
+      transaction.update(userRef(identity.uid), {
+        balanceCents: balanceCents - body.amountCents,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(newWithdrawalRef, {
+        requestId: body.requestId,
+        uid: identity.uid,
+        userId: profile.username,
+        username: profile.username,
+        email: profile.email,
+        amount: body.amountCents / 100,
+        amountCents: body.amountCents,
+        asset,
+        network,
+        networkName: getNetwork(asset, network).name,
+        walletAddress,
+        status: "pending",
+        transactionHash: null,
+        paidCryptoAmount: null,
+        reviewMessage: "",
+        createdAt: FieldValue.serverTimestamp(),
+        reviewedAt: null,
+        reviewedBy: null,
+      });
+      transaction.create(requestKeyRef, {
+        withdrawalId,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(userNotification, {
+        title: "Withdrawal request submitted",
+        message: `Your $${(body.amountCents / 100).toFixed(2)} USD withdrawal request in ${asset} on ${getNetwork(asset, network).name} is under review. The reserved amount will be returned if the request is rejected.`,
+        kind: "withdrawal",
+        metadata: { withdrawalId, status: "pending" },
+        readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      for (const adminNotification of adminNotifications) {
+        transaction.create(adminNotification, {
+          title: "New withdrawal request",
+          message: `${profile.username || profile.email} requested $${(body.amountCents / 100).toFixed(2)} USD in ${asset} on ${getNetwork(asset, network).name}.`,
+          kind: "withdrawal",
+          metadata: { uid: identity.uid, withdrawalId },
+          readAt: null,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+      created = true;
+    });
+    const withdrawal = await withdrawalCollection.doc(withdrawalId).get();
+    return send(created ? 201 : 200, { withdrawalId, status: withdrawal.data()?.status || "pending" });
+  }
+  if (pathname === "/api/admin/withdrawals" && method === "GET") {
+    await authenticate(request, { adminOnly: true });
+    const result = await db.collection("withdrawals").where("status", "==", "pending").limit(100).get();
+    const withdrawals = result.docs.map((snapshot) => ({
+      id: snapshot.id,
+      ...snapshot.data(),
+    })).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    return send(200, { withdrawals });
+  }
+  const withdrawalReviewMatch = pathname.match(/^\/api\/admin\/withdrawals\/([^/]+)\/(complete|reject)$/);
+  if (withdrawalReviewMatch && method === "POST") {
+    const { identity } = await authenticate(request, { adminOnly: true });
+    const body = await readJson(request);
+    const withdrawalRef = db.collection("withdrawals").doc(withdrawalReviewMatch[1]);
+    let uid = "";
+    let status = "rejected";
+    await db.runTransaction(async (transaction) => {
+      const withdrawalSnapshot = await transaction.get(withdrawalRef);
+      const withdrawal = withdrawalSnapshot.data();
+      if (!withdrawalSnapshot.exists || typeof withdrawal.uid !== "string") fail(404, "Withdrawal request not found.");
+      if (withdrawal.status !== "pending") fail(409, "This withdrawal request has already been reviewed.");
+      uid = withdrawal.uid;
+      const profileRef = userRef(uid);
+      const profileSnapshot = await transaction.get(profileRef);
+      const profile = profileSnapshot.data();
+      if (!profileSnapshot.exists) fail(404, "Member account not found.");
+
+      if (withdrawalReviewMatch[2] === "complete") {
+        const paidCryptoAmount = typeof body.paidCryptoAmount === "string"
+          ? body.paidCryptoAmount.trim()
+          : "";
+        const transactionHash = typeof body.transactionHash === "string"
+          ? body.transactionHash.trim()
+          : "";
+        if (
+          paidCryptoAmount.length > 80
+          || !/^\d+(?:\.\d{1,18})?$/.test(paidCryptoAmount)
+          || !Number.isFinite(Number(paidCryptoAmount))
+          || Number(paidCryptoAmount) <= 0
+        ) {
+          fail(400, "Enter the actual crypto amount sent.");
+        }
+        if (transactionHash.length < 8 || transactionHash.length > 200) {
+          fail(400, "Enter the transaction ID or hash for the completed payment.");
+        }
+        status = "completed";
+        transaction.update(withdrawalRef, {
+          status,
+          paidCryptoAmount,
+          transactionHash,
+          reviewMessage: "The administrator confirmed the external crypto payment was sent.",
+          reviewedBy: identity.uid,
+          reviewedAt: FieldValue.serverTimestamp(),
+        });
+        transaction.create(notificationRef(uid), {
+          title: "Withdrawal sent",
+          message: `Your $${(withdrawal.amountCents / 100).toFixed(2)} USD withdrawal request was reviewed and paid in ${withdrawal.asset} on ${withdrawal.networkName}. The recorded payout was ${paidCryptoAmount} ${withdrawal.asset}. Transaction ID: ${transactionHash}.`,
+          kind: "withdrawal",
+          metadata: { withdrawalId: withdrawalSnapshot.id, status, transactionHash },
+          readAt: null,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } else {
+        const balanceCents = Number.isSafeInteger(profile.balanceCents) && profile.balanceCents >= 0
+          ? profile.balanceCents
+          : 0;
+        const refundedBalance = balanceCents + withdrawal.amountCents;
+        if (!Number.isSafeInteger(withdrawal.amountCents) || withdrawal.amountCents <= 0 || !Number.isSafeInteger(refundedBalance)) {
+          fail(409, "The reserved withdrawal amount cannot be safely returned. Please investigate this request.");
+        }
+        const reviewMessage = "The withdrawal was not sent due to a network issue. The reserved amount has been returned to your USD balance. Please review your address and network before submitting another request.";
+        transaction.update(profileRef, { balanceCents: refundedBalance, updatedAt: FieldValue.serverTimestamp() });
+        transaction.update(withdrawalRef, {
+          status,
+          reviewMessage,
+          reviewedBy: identity.uid,
+          reviewedAt: FieldValue.serverTimestamp(),
+        });
+        transaction.create(notificationRef(uid), {
+          title: "Withdrawal request rejected",
+          message: `${reviewMessage} Request: ${withdrawal.asset} on ${withdrawal.networkName}, ${withdrawal.walletAddress}.`,
+          kind: "withdrawal",
+          metadata: { withdrawalId: withdrawalSnapshot.id, status },
+          readAt: null,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+    });
+    return send(200, { status, uid });
+  }
   if (pathname === "/api/admin/receipts" && method === "GET") {
     await authenticate(request, { adminOnly: true });
     await migrateLegacyReceipts();
@@ -604,6 +1064,8 @@ async function routeApi(request, response, url, corsHeaders) {
     const profileRef = userRef(uid);
     const notification = notificationRef(uid);
     let creditedBalanceCents = 0;
+    let firstDepositBonusCents = 0;
+    let firstDepositBonusReceiptId = null;
     const status = reviewMatch[2] === "approve" ? "approved" : "rejected";
     let notificationMessage = (typeof body.message === "string" ? body.message.trim().slice(0, 300) : "")
       || "Your deposit request was not approved. Please contact customer support.";
@@ -627,19 +1089,48 @@ async function routeApi(request, response, url, corsHeaders) {
       if (status === "approved") {
         if (profile.isBanned === true) fail(409, "A banned account cannot receive a deposit.");
         if (!validateAmount(receipt.amountCents)) fail(409, "The deposit amount is invalid.");
+        const approvedReceipts = profile.firstDepositBonusClaimed === true
+          ? null
+          : await transaction.get(db.collection("receipts").where("uid", "==", uid));
+        const approvedLegacyReceipts = profile.firstDepositBonusClaimed === true
+          ? null
+          : await transaction.get(userRef(uid).collection("receipts").where("status", "==", "approved"));
+        const previousApprovedReceipt = approvedReceipts?.docs.find((item) =>
+          item.id !== receiptSnapshot.id && item.data().status === "approved");
+        const hasPriorDeposit = Boolean(previousApprovedReceipt || approvedLegacyReceipts?.size);
+        firstDepositBonusCents = profile.firstDepositBonusClaimed === true || hasPriorDeposit
+          ? 0
+          : Math.round(receipt.amountCents * 0.2);
+        firstDepositBonusReceiptId = profile.firstDepositBonusClaimed === true
+          ? profile.firstDepositBonusReceiptId || null
+          : hasPriorDeposit
+            ? previousApprovedReceipt?.id || null
+            : receiptSnapshot.id;
         const currentBalance = Number.isSafeInteger(profile.balanceCents) && profile.balanceCents >= 0
           ? profile.balanceCents
           : 0;
-        creditedBalanceCents = currentBalance + receipt.amountCents;
+        creditedBalanceCents = currentBalance + receipt.amountCents + firstDepositBonusCents;
         if (!Number.isSafeInteger(creditedBalanceCents)) fail(409, "The balance would exceed the supported limit.");
-        notificationMessage = `$${(receipt.amountCents / 100).toFixed(2)} USD was credited to your Triplex balance after review. View your account activity for the deposit record. The Profit projection page has a hypothetical example only; it is not credited as earnings.`;
-        transaction.update(profileRef, { balanceCents: creditedBalanceCents, updatedAt: FieldValue.serverTimestamp() });
+        const bonusMessage = firstDepositBonusCents > 0
+          ? ` Your first-deposit gift bonus of $${(firstDepositBonusCents / 100).toFixed(2)} USD (20%) was added too.`
+          : "";
+        notificationMessage = `$${(receipt.amountCents / 100).toFixed(2)} USD deposit approved.${bonusMessage} A total of $${((receipt.amountCents + firstDepositBonusCents) / 100).toFixed(2)} USD was credited to your Triplex balance. Visit Profit progress to choose an amount and start your five-day profit cycle.`;
+        transaction.update(profileRef, {
+          balanceCents: creditedBalanceCents,
+          firstDepositBonusClaimed: true,
+          firstDepositBonusReceiptId,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
       }
       transaction.update(receiptRef, {
         status,
         reviewMessage: notificationMessage,
         reviewedBy: identity.uid,
         reviewedAt: FieldValue.serverTimestamp(),
+        ...(status === "approved" ? {
+          firstDepositBonusCents,
+          firstDepositBonusApplied: firstDepositBonusCents > 0,
+        } : {}),
       });
       if (legacyReceiptRef && legacyReceiptSnapshot?.exists) {
         transaction.update(legacyReceiptRef, {
@@ -647,6 +1138,10 @@ async function routeApi(request, response, url, corsHeaders) {
           reviewMessage: notificationMessage,
           reviewedBy: identity.uid,
           reviewedAt: FieldValue.serverTimestamp(),
+          ...(status === "approved" ? {
+            firstDepositBonusCents,
+            firstDepositBonusApplied: firstDepositBonusCents > 0,
+          } : {}),
         });
       }
       transaction.create(notification, {
@@ -658,7 +1153,11 @@ async function routeApi(request, response, url, corsHeaders) {
         createdAt: FieldValue.serverTimestamp(),
       });
     });
-    return send(200, { status, balanceCents: creditedBalanceCents });
+    return send(200, {
+      status,
+      balanceCents: creditedBalanceCents,
+      firstDepositBonusCents,
+    });
   }
   if (pathname === "/api/admin/members" && method === "GET") {
     await authenticate(request, { adminOnly: true });
@@ -742,6 +1241,9 @@ async function routeApi(request, response, url, corsHeaders) {
       const recipient = recipientSnapshot.data();
       if (!senderSnapshot.exists || !recipientSnapshot.exists) fail(404, "An account could not be found.");
       if (sender.isBanned || recipient.isBanned) fail(403, "A banned account cannot send or receive transfers.");
+      if (typeof sender.activeProfitCycleId === "string" && sender.activeProfitCycleId) {
+        fail(409, "Transfers are paused while your five-day profit cycle is active.");
+      }
       const senderBalance = Number.isSafeInteger(sender.balanceCents) && sender.balanceCents >= 0 ? sender.balanceCents : 0;
       if (senderBalance < body.amountCents) fail(409, "Your available balance is too low.");
       const recipientBalance = (Number.isSafeInteger(recipient.balanceCents) && recipient.balanceCents >= 0 ? recipient.balanceCents : 0) + body.amountCents;
@@ -846,6 +1348,9 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, "0.0.0.0", () => {
   console.log(`Triplex server listening on port ${port}`);
+  void processDueProfitCycles();
+  const profitCycleTimer = setInterval(() => void processDueProfitCycles(), 60_000);
+  profitCycleTimer.unref();
 });
 
 server.on("error", (error) => {

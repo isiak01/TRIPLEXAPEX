@@ -98,6 +98,8 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .visibility-icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
 .balance-value-row { display: flex; align-items: baseline; gap: 12px; margin-top: 22px; }
 .balance-value { margin: 0; font-family: Manrope, sans-serif; font-size: clamp(2.2rem,5vw,3.2rem); font-weight: 750; letter-spacing: -.06em; line-height: 1; font-variant-numeric: tabular-nums; }
+.balance-growth { position: relative; z-index: 1; margin: 10px 0 0; color: #8af0b4; font-size: .73rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.balance-growth[hidden] { display: none; }
 .currency { color: rgba(255,255,255,.74); font-size: .8rem; font-weight: 700; }
 .balance-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 17px; padding-top: 13px; border-top: 1px solid rgba(255,255,255,.14); }
 .balance-foot, .balance-period { margin: 0; color: rgba(255,255,255,.72); font-size: .73rem; }
@@ -127,6 +129,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .activity-row-copy small { overflow: hidden; color: var(--muted); font-size: .66rem; text-overflow: ellipsis; white-space: nowrap; }
 .activity-row-amount { color: var(--red); font-size: .76rem; font-weight: 750; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .activity-row-amount.is-incoming { color: var(--green-dark); }
+.activity-row-amount.is-outgoing { color: var(--red); }
 .activity-status { grid-column: 2 / span 2; justify-self: start; padding: 4px 7px; color: var(--muted); background: var(--page); border-radius: 999px; font-size: .6rem; font-weight: 700; text-transform: capitalize; }
 .activity-status.status-approved,.activity-status.status-completed { color: var(--green-dark); background: var(--green-soft); }
 .activity-status.status-rejected { color: var(--red); background: var(--red-soft); }
@@ -253,6 +256,19 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .deposit-warning strong { color: #554620; }
 .deposit-label { display: block; margin: 15px 0 7px; color: var(--ink); font-size: .75rem; font-weight: 700; }
 .deposit-label > span { color: var(--muted); font-weight: 500; }
+.deposit-gift-offer { position: relative; display: flex; align-items: center; gap: 12px; overflow: hidden; margin: 14px 0 17px; padding: 14px 16px; color: #633d08; background: linear-gradient(115deg,#fff3bd 0%,#ffe8a0 42%,#fff5cf 68%,#f6d579 100%); border: 1px solid #e8bd4e; border-radius: 13px; box-shadow: 0 6px 18px rgba(205,151,35,.17), inset 0 1px rgba(255,255,255,.82); animation: gift-glow 2.8s ease-in-out infinite alternate; }
+.deposit-gift-offer::after { position: absolute; inset: 0 auto 0 -45%; width: 35%; background: linear-gradient(90deg,transparent,rgba(255,255,255,.65),transparent); content: ""; pointer-events: none; transform: skewX(-20deg); animation: gift-shimmer 3.5s ease-in-out infinite; }
+.deposit-gift-icon { position: relative; z-index: 1; display: grid; width: 43px; height: 43px; flex: 0 0 auto; background: rgba(255,255,255,.72); border: 1px solid rgba(151,103,13,.18); border-radius: 12px; font-size: 1.55rem; place-items: center; }
+.deposit-gift-copy { position: relative; z-index: 1; display: grid; gap: 3px; min-width: 0; }
+.deposit-gift-copy strong { color: #714506; font-size: .72rem; font-weight: 850; letter-spacing: .045em; }
+.deposit-gift-copy span { color: #785b25; font-size: .7rem; line-height: 1.4; }
+.deposit-gift-copy small { color: #673d04; font-size: .72rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.deposit-gift-sparkle { position: absolute; top: 8px; right: 12px; color: rgba(142,96,12,.75); font-size: 1.1rem; animation: gift-twinkle 1.4s ease-in-out infinite alternate; }
+.deposit-gift-claimed { margin: 12px 0; padding: 10px 12px; color: var(--muted); background: var(--page); border: 1px solid var(--line); border-radius: 9px; font-size: .7rem; line-height: 1.45; }
+@keyframes gift-glow { to { box-shadow: 0 8px 23px rgba(205,151,35,.28), inset 0 1px rgba(255,255,255,.9); } }
+@keyframes gift-shimmer { 0%,55% { left: -45%; } 85%,100% { left: 120%; } }
+@keyframes gift-twinkle { to { opacity: .35; transform: scale(.8) rotate(25deg); } }
+@media (prefers-reduced-motion: reduce) { .deposit-gift-offer,.deposit-gift-offer::after,.deposit-gift-sparkle { animation: none; } }
 .deposit-address { display: flex; align-items: center; gap: 8px; padding: 9px; background: var(--page); border: 1px solid var(--line); border-radius: 9px; }
 .deposit-address code { flex: 1; overflow-wrap: anywhere; color: var(--ink); font-size: .72rem; line-height: 1.45; }
 .deposit-address button { min-height: 34px; padding: 0 11px; color: var(--green-dark); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; cursor: pointer; font-size: .7rem; font-weight: 700; }
@@ -324,6 +340,48 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .transfer-explainer { margin-bottom: 16px !important; }
 .transfer-card .notice-close { z-index: 1; }
 .transfer-card .auth-legal { margin: 15px 0 0; text-align: left; }
+.withdrawal-card { width: min(100%, 480px); text-align: left; }
+.withdrawal-card .notice-logo { margin-left: 0; }
+.withdrawal-card .eyebrow { margin-bottom: 6px; }
+.withdrawal-card h2 { margin-bottom: 8px; font-size: 1.35rem; }
+.withdrawal-card form { margin-top: 15px; }
+.withdrawal-card label { display: block; margin: 14px 0 7px; color: var(--ink); font-size: .78rem; font-weight: 700; }
+.withdrawal-card select, .withdrawal-address { width: 100%; min-height: 46px; padding: 0 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: .82rem; }
+.withdrawal-card select:focus, .withdrawal-address:focus { outline: 0; border-color: var(--green); box-shadow: 0 0 0 3px rgba(7,139,73,.1); }
+.withdrawal-warning { margin: 14px 0 10px; }
+.withdrawal-balance { margin: 10px 0 14px !important; color: var(--muted); font-size: .75rem !important; text-align: left; }
+.withdrawal-balance strong { color: var(--ink); }
+.withdrawal-review-details { display: grid; gap: 9px; margin-top: 14px; padding: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 9px; }
+.withdrawal-review-details > div { display: grid; gap: 4px; }
+.withdrawal-review-details span { color: var(--muted); font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+.withdrawal-review-details strong { color: var(--ink); font-size: .82rem; overflow-wrap: anywhere; }
+.withdrawal-review-details code { color: var(--ink); font: 500 .72rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; user-select: all; }
+.withdrawal-completion-card { width: min(100%, 560px); }
+.withdrawal-completion-card .withdrawal-review-details { text-align: left; }
+.withdrawal-completion-card form > input { width: 100%; min-height: 46px; padding: 0 12px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: .82rem; }
+.withdrawal-completion-card form > input:focus { outline: 0; border-color: var(--green); box-shadow: 0 0 0 3px rgba(7,139,73,.1); }
+.withdrawal-confirm-label { display: flex !important; align-items: flex-start; gap: 9px; margin: 16px 0 8px !important; font-weight: 550 !important; line-height: 1.5; cursor: pointer; }
+.withdrawal-confirm-label input { width: 17px; height: 17px; flex: 0 0 auto; margin: 1px 0 0; accent-color: var(--green); }
+.cycle-status-card,.progress-start-card { display: grid; gap: 16px; margin: 18px 0; padding: clamp(17px,3vw,24px); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow); }
+.cycle-status-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.cycle-status-header .eyebrow { margin: 0 0 4px; }
+.cycle-status-header h2,.progress-start-card h2 { margin: 0; font-size: 1.03rem; letter-spacing: -.03em; }
+.cycle-live-pill,.cycle-complete-pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 9px; color: var(--green-dark); background: var(--green-soft); border-radius: 999px; font-size: .62rem; font-weight: 800; letter-spacing: .06em; white-space: nowrap; }
+.cycle-live-pill i { width: 7px; height: 7px; background: var(--green); border-radius: 50%; box-shadow: 0 0 0 4px rgba(7,139,73,.1); }
+.cycle-progress-track { height: 7px; overflow: hidden; background: var(--page); border-radius: 99px; }
+.cycle-progress-track span { display: block; height: 100%; background: linear-gradient(90deg,#0b8d51,#31cf7f); border-radius: inherit; transition: width .4s ease; }
+.cycle-stat-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.cycle-stat-grid > div { display: grid; gap: 6px; min-width: 0; padding: 12px; background: var(--page); border: 1px solid var(--line); border-radius: 10px; }
+.cycle-stat-grid span { color: var(--muted); font-size: .65rem; }
+.cycle-stat-grid strong { font-size: clamp(.74rem,2vw,.92rem); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cycle-stat-grid .cycle-positive { color: var(--green-dark); }
+.cycle-stat-grid .cycle-negative { color: var(--red); }
+.cycle-status-copy,.cycle-complete-card > p,.progress-start-card p { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.6; }
+.cycle-complete-pill { color: var(--green-dark); }
+.progress-start-card { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
+.progress-start-card .eyebrow { margin: 0 0 4px; }
+.progress-start-card p { margin-top: 5px; }
+.cycle-formula-note { margin: 14px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.65; }
 .boot-screen { display: grid; align-content: center; justify-items: center; gap: 15px; min-height: 100vh; padding: 30px; color: var(--ink); background: radial-gradient(ellipse at 50% 40%,rgba(7,139,73,.09),transparent 31rem),var(--page); text-align: center; }
 .boot-logo { width: 132px; height: 84px; object-fit: contain; animation: logo-breathe 2.3s ease-in-out infinite; }
 @keyframes logo-breathe { 0%,100% { transform: scale(1); opacity: .92; } 50% { transform: scale(1.035); opacity: 1; } }
@@ -376,6 +434,9 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
   .install-prompt-copy span { font-size: .68rem; }
   .install-button { padding: 0 10px; }
   .admin-shortcuts { grid-template-columns: 1fr; }
+  .cycle-stat-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .progress-start-card { grid-template-columns: 1fr; }
+  .progress-start-card .button { width: 100%; }
   .admin-list { padding: 9px; }
   .receipt-card { padding: 13px; }
   .receipt-meta { flex-direction: column; }
@@ -413,6 +474,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .profit-equity strong small { color: #a7b9ae; font-family: "DM Sans",sans-serif; font-size: .72rem; letter-spacing: 0; }
 .profit-projected strong { color: #28d17c; }
 .profit-equity p,.profit-projected p { margin: 0; color: #83948a; font-size: .68rem; line-height: 1.4; }
+.profit-equity .profit-balance-growth { color: #40df8a; font-weight: 750; font-variant-numeric: tabular-nums; }
 .profit-chart-heading { margin-top: 23px; font-size: .61rem; }
 .profit-chart-heading span:last-child { color: #73847a; font-size: .64rem; font-weight: 500; letter-spacing: 0; }
 .profit-chart { display: block; width: 100%; height: auto; margin: 7px 0 -7px; overflow: visible; }
