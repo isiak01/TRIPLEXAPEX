@@ -478,7 +478,6 @@ function renderProfitPage() {
         <tbody>${projection.map((row) => `<tr><td>${row.cycle}</td><td>Days ${(row.cycle - 1) * 3 + 1}–${row.cycle * 3}</td><td>${formatUsdt(row.openingCents)}</td><td>${formatUsdt(row.illustrativeCents)}</td><td class="projection-fee">−${formatUsdt(row.feeCents)}</td><td class="projection-net">${formatUsdt(row.netCents)}</td></tr>`).join("")}</tbody>
       </table></div>
       <div class="projection-summary"><span>Initial example <strong>${formatUsdt(1_000)}</strong></span><span>Assumed fees <strong>${formatUsdt(2_000)}</strong></span><span>Final example <strong>${formatUsdt(finalCents)}</strong></span></div>
-      <div class="projection-disclaimer"><strong>Important</strong><span>This table repeats a hypothetical scenario, not an actual or guaranteed return. Triplex does not currently execute trades or automatically add hourly/daily earnings. The assumed $4 USDT fee is shown for illustration only and is not deducted from your account here. USD and USDT are displayed separately; no conversion is performed.</span></div>
     </section>
     <div class="progress-page-actions"><a class="button button-secondary" href="index.html#activity">View account activity</a><a class="button button-secondary" href="assistant.html">Ask the assistant</a></div>`, "profit", currentUsername);
 
