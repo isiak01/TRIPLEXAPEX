@@ -52,12 +52,12 @@ a { color: inherit; }
 .side-account small { margin-top: 3px; color: var(--muted); font-size: .73rem; }
 .side-avatar, .avatar { display: grid; flex: 0 0 auto; width: 36px; height: 36px; color: var(--green-dark); background: var(--green-soft); border: 1px solid rgba(7,139,73,.1); border-radius: 50%; font-size: .76rem; font-weight: 750; place-items: center; }
 .nav-label { margin: 29px 12px 12px; color: #929a93; font-size: .66rem; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
-.nav { display: grid; gap: 6px; }
+.nav { display: grid; flex: 1 1 auto; gap: 6px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .nav a, .side-link { display: flex; align-items: center; gap: 12px; min-height: 45px; padding: 0 13px; color: var(--muted); border: 0; border-radius: 9px; background: transparent; font-size: .87rem; font-weight: 600; text-align: left; text-decoration: none; transition: color .18s ease, background .18s ease, transform .18s ease; }
 .nav a:hover, .side-link:hover { color: var(--green-dark); background: var(--green-soft); transform: translateX(2px); }
 .nav a[aria-current="page"] { color: var(--green-dark); background: var(--green-soft); }
 .nav-icon { display: grid; width: 20px; height: 20px; place-items: center; font-size: 1rem; }
-.sidebar-bottom { margin-top: auto; }
+.sidebar-bottom { flex: 0 0 auto; margin-top: auto; }
 .sidebar-note { margin-top: 14px; padding: 13px; color: var(--muted); background: var(--page); border: 1px solid var(--line); border-radius: 11px; font-size: .73rem; line-height: 1.55; }
 .sidebar-note strong { display: block; margin-bottom: 4px; color: var(--ink); font-size: .8rem; }
 .main { min-width: 0; }
