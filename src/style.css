@@ -570,3 +570,138 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
   .projection-heading { align-items: flex-start; flex-direction: column; }
   .projection-summary { gap: 11px 18px; }
 }
+.trading-dashboard { padding: clamp(17px,4vw,30px); color: #e7edf4; background: #0b0e11; border: 1px solid #252b32; border-radius: 16px; box-shadow: 0 20px 48px rgba(0,0,0,.2); }
+.trading-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.trading-header .trading-brand { margin: 0; color: #25c776; font: 800 1.12rem/1 Manrope,sans-serif; letter-spacing: .14em; }
+.trading-brand span { color: #ef5962; }
+.trading-kicker { margin: 9px 0 5px; color: #a4acb5; font-size: .64rem; font-weight: 750; letter-spacing: .11em; }
+.trading-kicker i { color: #d4af37; font-style: normal; }
+.trading-header h1 { color: #e5e9ee; font-size: clamp(1.05rem,3vw,1.35rem); letter-spacing: -.025em; }
+.trading-dashboard .projection-badge { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; color: #c9efda; background: rgba(31,157,92,.13); border: 1px solid rgba(212,175,55,.7); border-radius: 999px; font-size: .68rem; white-space: nowrap; }
+.projection-badge i,.trading-live i { width: 7px; height: 7px; background: #24ce78; border-radius: 50%; box-shadow: 0 0 10px rgba(36,206,120,.5); }
+.trading-divider { height: 1px; margin: 20px 0 16px; background: linear-gradient(90deg,transparent,#d4af37 14%,rgba(212,175,55,.48) 70%,transparent); }
+.trading-chart-card { padding: 14px 15px 11px; background: #0e1117; border: 1px solid #20262e; border-radius: 11px; }
+.trading-chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.trading-chart-heading > div { display: grid; gap: 5px; }
+.trading-chart-heading > div > span { color: #87919d; font-size: .59rem; font-weight: 750; letter-spacing: .12em; }
+.trading-chart-heading strong { color: #edf2f5; font-size: .88rem; font-variant-numeric: tabular-nums; }
+.trading-chart-heading strong i { padding: 0 5px; color: #d4af37; font-style: normal; }
+.trading-live { display: inline-flex; align-items: center; gap: 6px; color: #97a2ae; font-size: .57rem; font-weight: 800; letter-spacing: .1em; }
+.trading-live i { width: 6px; height: 6px; }
+.trading-dashboard .profit-chart { height: 156px; margin: 3px 0 0; }
+.trading-dashboard .profit-chart-area { fill: url(#profit-area); }
+.trading-dashboard .profit-chart-line { stroke: #22c878; stroke-width: 2.8; }
+.trading-dashboard .profit-chart-point { fill: #0e1117; stroke: #2bd47f; }
+.trading-dashboard .profit-chart-start { fill: #d4af37; stroke: #f3d779; stroke-width: 1.5; }
+.trading-dashboard .profit-chart-labels { display: grid; grid-template-columns: repeat(6,1fr); padding: 0 2px; color: #89939f; font-size: .55rem; text-align: center; }
+.trading-dashboard .profit-chart-labels span:first-child { text-align: left; }
+.trading-dashboard .profit-chart-labels span:last-child { text-align: right; }
+.trading-stat-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 10px; margin: 12px 0; }
+.trading-stat-grid > div { display: grid; gap: 7px; min-width: 0; padding: 13px 15px; background: #0e1117; border: 1px solid #20262e; border-radius: 10px; }
+.trading-stat-grid span { color: #929ca7; font-size: .64rem; }
+.trading-stat-grid strong { color: #eff3f6; font-size: clamp(.9rem,2.4vw,1.12rem); font-variant-numeric: tabular-nums; }
+.trading-dashboard .projection-table-wrap { border-color: #252b32; border-radius: 9px; }
+.trading-dashboard .projection-table { min-width: 920px; color: #dfe5eb; font-size: .67rem; font-variant-numeric: tabular-nums; }
+.trading-dashboard .projection-table th,.trading-dashboard .projection-table td { padding: 12px 11px; border-bottom-color: #20262e; }
+.trading-dashboard .projection-table th { color: #929ca7; background: #11151b; font-size: .6rem; }
+.trading-dashboard .projection-table tbody tr { background: #0e1117; transition: background .16s ease; }
+.trading-dashboard .projection-table tbody tr:hover { background: #141a20; }
+.trading-dashboard .projection-table tbody tr:last-child td { border-bottom: 0; }
+.trading-dashboard .projection-table td { color: #dfe5eb; }
+.trading-dashboard .projection-table .projection-net { color: #36d68a; }
+.trading-dashboard .projection-table .projection-fee { color: #ff6d74; }
+.projection-mobile-list { display: none; }
+.projection-day { display: inline-flex; align-items: center; gap: 7px; }
+.projection-day svg { width: 17px; height: 17px; color: #d4af37; }
+.trading-dashboard .cycle-formula-note { margin: 14px 2px 0; color: #929ca7; font-size: .66rem; line-height: 1.5; }
+.full-activity-card { margin-top: 6px; padding: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow); }
+.full-activity-card .activity-card { min-height: 100px; border: 0; }
+.full-activity-card .activity-list { padding: 0 12px; }
+.full-activity-card .activity-row { grid-template-columns: 38px minmax(0,1fr) auto; }
+.referral-content { display: grid; gap: 15px; }
+.referral-agent-card,.referral-apply-card,.referral-status-card,.referral-members-card,.referral-admin-summary { position: relative; overflow: hidden; padding: clamp(17px,4vw,25px); background: var(--surface); border: 1px solid var(--line); border-radius: 15px; box-shadow: var(--shadow); }
+.referral-agent-card { color: #eaf3ed; background: radial-gradient(ellipse at 92% 10%,rgba(212,175,55,.14),transparent 30%),linear-gradient(145deg,#111a15,#0b0e11); border-color: #29352e; }
+.referral-agent-card > .eyebrow { color: #58d894; }
+.referral-agent-card h2,.referral-apply-card h2,.referral-status-card h2,.referral-members-card h2,.referral-admin-summary h2 { margin: 0 0 8px; font-size: clamp(1rem,3vw,1.24rem); }
+.referral-agent-card > p:not(.eyebrow),.referral-apply-card > p:not(.eyebrow),.referral-admin-summary p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: .76rem; line-height: 1.55; }
+.referral-agent-card > p:not(.eyebrow) { color: #aab8af; }
+.referral-success-mark { position: absolute; top: 19px; right: 20px; display: grid; width: 32px; height: 32px; color: #a1f2c2; background: rgba(29,176,99,.17); border: 1px solid rgba(65,218,134,.32); border-radius: 50%; font-weight: 800; place-items: center; }
+.referral-code-box { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 17px; padding: 13px; background: rgba(255,255,255,.045); border: 1px solid rgba(212,175,55,.48); border-radius: 10px; }
+.referral-code-box > div { display: grid; gap: 5px; min-width: 0; }
+.referral-code-box span { color: #94a49a; font-size: .56rem; font-weight: 750; letter-spacing: .12em; }
+.referral-code-box strong { color: #f0d47a; font-size: clamp(.68rem,2.5vw,.9rem); letter-spacing: .06em; overflow-wrap: anywhere; }
+.referral-code-box .button { flex: 0 0 auto; color: #f0d47a; background: rgba(212,175,55,.1); border-color: rgba(212,175,55,.4); }
+.referral-reward-rules { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin-top: 11px; }
+.referral-reward-rules > div { display: grid; gap: 5px; padding: 12px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.075); border-radius: 9px; }
+.referral-reward-rules strong { color: #45dd8d; font-size: 1rem; }
+.referral-reward-rules span { color: #a5b1a9; font-size: .66rem; line-height: 1.45; }
+.referral-apply-card > p:not(.eyebrow) { margin-bottom: 12px; }
+.referral-code-form > label { display: block; margin-bottom: 6px; font-size: .72rem; font-weight: 700; }
+.referral-code-entry { display: flex; gap: 8px; }
+.referral-code-entry input { flex: 1; min-width: 0; padding: 11px 12px; color: var(--ink); background: var(--page); border: 1px solid var(--line); border-radius: 8px; font-size: .73rem; letter-spacing: .04em; }
+.referral-code-entry input:focus { border-color: var(--green); outline: 0; box-shadow: 0 0 0 3px rgba(7,139,73,.1); }
+.referral-code-entry .button { flex: 0 0 auto; }
+.referral-inline-message { min-height: 18px; margin: 8px 0 0; color: var(--muted); font-size: .7rem; }
+.referral-inline-message.is-success { color: var(--green-dark); }
+.referral-inline-message.is-error { color: var(--red); }
+.referral-inline-message.is-checking { display: flex; align-items: center; gap: 7px; color: var(--green-dark); }
+.referral-check-spinner { width: 14px; height: 14px; border: 2px solid var(--line); border-top-color: var(--green); border-radius: 50%; animation: referral-spin .7s linear infinite; }
+@keyframes referral-spin { to { transform: rotate(360deg); } }
+.referral-status-card { display: flex; align-items: flex-start; gap: 12px; }
+.referral-status-icon { display: grid; flex: 0 0 auto; width: 34px; height: 34px; color: var(--green-dark); background: var(--green-soft); border-radius: 50%; place-items: center; }
+.referral-status-card .eyebrow { margin-bottom: 5px; }
+.referral-status-card p:last-child { margin: 0; color: var(--muted); font-size: .74rem; }
+.referral-members-card { padding: 0; overflow: hidden; }
+.referral-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 18px 20px; border-bottom: 1px solid var(--line); }
+.referral-section-heading .eyebrow { margin-bottom: 4px; }
+.referral-section-heading h2 { margin: 0; }
+.referral-section-heading > span { color: var(--muted); font-size: .7rem; }
+.referral-member-row { display: flex; align-items: center; gap: 11px; padding: 14px 19px; border-bottom: 1px solid var(--line); }
+.referral-member-row:last-child { border-bottom: 0; }
+.referral-member-row .member-info { flex: 1; }
+.referral-member-rewards { display: grid; gap: 3px; justify-items: end; }
+.referral-member-rewards strong { color: var(--green-dark); font-size: .77rem; font-variant-numeric: tabular-nums; }
+.referral-member-rewards small { color: var(--muted); font-size: .58rem; }
+.referral-pending { color: var(--muted); font-size: .65rem; }
+.referral-members-card > .empty-state { padding: 18px; }
+.referral-closure { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; color: #75602d; background: color-mix(in srgb,#d4af37 12%,var(--surface)); border: 1px solid color-mix(in srgb,#d4af37 35%,var(--line)); border-radius: 10px; }
+.referral-closure > span { color: #c29c31; }
+.referral-closure p { margin: 0; font-size: .69rem; line-height: 1.55; }
+.referral-closure strong { display: block; color: #5e4d24; }
+.referral-admin-summary { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.referral-admin-summary > span { flex: 0 0 auto; padding: 8px 10px; color: var(--green-dark); background: var(--green-soft); border-radius: 999px; font-size: .69rem; font-weight: 750; }
+.referral-admin-list { padding: 8px; }
+.referral-admin-list .member-card { flex-wrap: wrap; }
+.crypto-symbol { overflow: hidden; padding: 0; background: transparent !important; }
+.crypto-symbol svg { display: block; width: 100%; height: 100%; }
+.deposit-quote { display: grid; gap: 4px; margin-top: 8px; padding: 10px 12px; color: var(--muted); background: var(--page); border: 1px solid var(--line); border-radius: 9px; font-size: .68rem; line-height: 1.45; }
+.deposit-quote strong { color: var(--green-dark); font-size: .77rem; font-variant-numeric: tabular-nums; }
+.deposit-quote.is-error { color: var(--red); }
+.deposit-quote.is-error strong { color: var(--red); }
+@media (max-width: 640px) {
+  .trading-header { flex-direction: column; }
+  .trading-header .projection-badge { align-self: flex-start; }
+  .trading-chart-card { padding: 12px 9px 9px; }
+  .trading-dashboard .profit-chart { height: 135px; }
+  .trading-dashboard .profit-chart-labels { font-size: .47rem; }
+  .trading-dashboard .projection-table-wrap { display: none; }
+  .projection-mobile-list { display: grid; gap: 8px; }
+  .projection-mobile-row { padding: 12px; background: #0e1117; border: 1px solid #252b32; border-radius: 9px; }
+  .projection-mobile-row header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid #20262e; }
+  .projection-mobile-row header > strong { display: grid; gap: 3px; color: #89939f; font-size: .58rem; font-weight: 600; text-align: right; }
+  .projection-mobile-row header > strong i { color: #36d68a; font-size: .78rem; font-style: normal; font-variant-numeric: tabular-nums; }
+  .projection-mobile-row dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin: 10px 0 0; }
+  .projection-mobile-row dl > div { display: grid; gap: 3px; }
+  .projection-mobile-row dt { color: #89939f; font-size: .57rem; }
+  .projection-mobile-row dd { margin: 0; color: #e3e8ed; font-size: .72rem; font-variant-numeric: tabular-nums; }
+  .projection-mobile-row .projection-mobile-net { grid-column: 1 / -1; padding-top: 8px; border-top: 1px solid #20262e; }
+  .trading-stat-grid { gap: 7px; }
+  .trading-stat-grid > div { padding: 10px 9px; }
+  .trading-stat-grid span { font-size: .58rem; }
+  .referral-reward-rules { grid-template-columns: 1fr; }
+  .referral-code-box { align-items: flex-start; flex-direction: column; }
+  .referral-code-entry { align-items: stretch; flex-direction: column; }
+  .referral-admin-summary { align-items: flex-start; flex-direction: column; }
+  .referral-member-row { align-items: flex-start; flex-wrap: wrap; padding: 12px; }
+  .referral-member-rewards { width: 100%; padding-left: 47px; grid-template-columns: repeat(2,auto); justify-content: start; justify-items: start; column-gap: 6px; }
+}

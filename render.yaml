@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: triplex-dashboard
+    name: tripleapex
     runtime: node
     buildCommand: npm ci && npm run build
     startCommand: npm start

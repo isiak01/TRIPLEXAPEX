@@ -17,7 +17,7 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(fetch(event.request).catch(() => {
     if (event.request.mode === "navigate") {
       return new Response(
-        "<!doctype html><html lang=\"en\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Triplex offline</title><body><main><h1>You are offline</h1><p>Reconnect to the internet to securely access your Triplex account.</p></main></body></html>",
+        "<!doctype html><html lang=\"en\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>TRIPLEAPEX offline</title><body><main><h1>You are offline</h1><p>Reconnect to the internet to securely access your TRIPLEAPEX account.</p></main></body></html>",
         { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
       );
     }

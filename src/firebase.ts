@@ -44,7 +44,7 @@ export interface AccountNotification {
 
 export interface AccountActivity {
   id: string;
-  type: "deposit" | "sent" | "received" | "withdrawal" | "profit";
+  type: "deposit" | "sent" | "received" | "withdrawal" | "profit" | "referral";
   amountCents: number;
   bonusCents?: number;
   status: string;
@@ -62,6 +62,8 @@ export interface ProfitCycle {
   dayNumber: number;
   hourInDay: number;
   startedAtMs: number;
+  dailyGrowthRate: number;
+  dailyFeeRate: number;
 }
 
 const config = {
@@ -230,7 +232,7 @@ export function subscribeNotifications(
   return onSnapshot(notifications, (snapshot) => {
     onItems(snapshot.docs.map((item) => ({
       id: item.id,
-      title: typeof item.data().title === "string" ? item.data().title : "Triplex update",
+      title: typeof item.data().title === "string" ? item.data().title : "TRIPLEAPEX update",
       message: typeof item.data().message === "string" ? item.data().message : "",
       readAt: item.data().readAt ?? null,
       createdAt: item.data().createdAt ?? null,
@@ -295,6 +297,8 @@ export function subscribeProfitCycle(
         dayNumber: Number.isSafeInteger(data.dayNumber) ? data.dayNumber : 1,
         hourInDay: Number.isSafeInteger(data.hourInDay) ? data.hourInDay : 0,
         startedAtMs: Number.isSafeInteger(data.startedAtMs) ? data.startedAtMs : 0,
+        dailyGrowthRate: typeof data.dailyGrowthRate === "number" && Number.isFinite(data.dailyGrowthRate) ? data.dailyGrowthRate : 0.053,
+        dailyFeeRate: typeof data.dailyFeeRate === "number" && Number.isFinite(data.dailyFeeRate) ? data.dailyFeeRate : 0.01,
       };
     }).sort((left, right) => right.startedAtMs - left.startedAtMs);
     onCycle(items.find((item) => item.status === "active") || items[0] || null);
@@ -305,6 +309,7 @@ export function subscribeAccountActivity(
   uid: string,
   onItems: (items: AccountActivity[]) => void,
   onError: (error: Error) => void,
+  includeAll = false,
 ): () => void {
   if (!db) {
     onError(new Error("Firebase is not configured."));
@@ -317,9 +322,9 @@ export function subscribeAccountActivity(
   let withdrawals: AccountActivity[] = [];
   let profitActivity: AccountActivity[] = [];
   const publish = () => {
-    onItems([...receipts, ...legacyReceipts, ...transfers, ...withdrawals, ...profitActivity]
-      .sort((left, right) => (right.createdAt?.toMillis() || 0) - (left.createdAt?.toMillis() || 0))
-      .slice(0, 12));
+    const items = [...receipts, ...legacyReceipts, ...transfers, ...withdrawals, ...profitActivity]
+      .sort((left, right) => (right.createdAt?.toMillis() || 0) - (left.createdAt?.toMillis() || 0));
+    onItems(includeAll ? items : items.slice(0, 12));
   };
   const receiptQuery = query(collection(db, "receipts"), where("uid", "==", uid));
   const stopReceipts = onSnapshot(receiptQuery, (snapshot) => {
@@ -348,22 +353,19 @@ export function subscribeAccountActivity(
     });
     publish();
   }, onError);
-  const legacyReceiptQuery = query(
-    collection(db, "users", uid, "receipts"),
-    orderBy("createdAt", "desc"),
-    limit(12),
-  );
-  const transferQuery = query(
-    collection(db, "users", uid, "transfers"),
-    orderBy("createdAt", "desc"),
-    limit(12),
-  );
+  const legacyReceiptsCollection = collection(db, "users", uid, "receipts");
+  const legacyReceiptQuery = includeAll
+    ? query(legacyReceiptsCollection, orderBy("createdAt", "desc"))
+    : query(legacyReceiptsCollection, orderBy("createdAt", "desc"), limit(12));
+  const transfersCollection = collection(db, "users", uid, "transfers");
+  const transferQuery = includeAll
+    ? query(transfersCollection, orderBy("createdAt", "desc"))
+    : query(transfersCollection, orderBy("createdAt", "desc"), limit(12));
   const withdrawalQuery = query(collection(db, "withdrawals"), where("uid", "==", uid));
-  const profitActivityQuery = query(
-    collection(db, "users", uid, "profitActivity"),
-    orderBy("createdAt", "desc"),
-    limit(50),
-  );
+  const profitActivityCollection = collection(db, "users", uid, "profitActivity");
+  const profitActivityQuery = includeAll
+    ? query(profitActivityCollection, orderBy("createdAt", "desc"))
+    : query(profitActivityCollection, orderBy("createdAt", "desc"), limit(50));
   const stopLegacyReceipts = onSnapshot(legacyReceiptQuery, (snapshot) => {
     legacyReceipts = snapshot.docs.filter((item) => !migratedLegacyReceiptIds.has(item.id)).map((item) => {
       const data = item.data();
@@ -394,7 +396,7 @@ export function subscribeAccountActivity(
         type: data.type === "received" ? "received" : "sent",
         amountCents: Number.isSafeInteger(data.amountCents) ? data.amountCents : 0,
         status: "completed",
-        detail: typeof data.counterpartyUsername === "string" ? `@${data.counterpartyUsername}` : "Triplex user",
+        detail: typeof data.counterpartyUsername === "string" ? `@${data.counterpartyUsername}` : "TRIPLEAPEX user",
         createdAt: data.createdAt ?? null,
       };
     });
@@ -419,10 +421,12 @@ export function subscribeAccountActivity(
       const data = item.data();
       return {
         id: item.id,
-        type: "profit",
+        type: data.type === "referral" ? "referral" : "profit",
         amountCents: Number.isSafeInteger(data.amountCents) ? data.amountCents : 0,
-        status: data.type === "fee" ? "fee" : "credited",
-        detail: `Day ${Number.isSafeInteger(data.dayNumber) ? data.dayNumber : 1}${data.type === "fee" ? " · cycle fee" : ` · hour ${Number.isSafeInteger(data.hourInDay) ? data.hourInDay : 1}`}`,
+        status: data.type === "fee" ? "fee" : data.type === "referral" ? "reward" : "credited",
+        detail: data.type === "referral"
+          ? (typeof data.detail === "string" ? data.detail : "Referral reward")
+          : `Day ${Number.isSafeInteger(data.dayNumber) ? data.dayNumber : 1}${data.type === "fee" ? " · cycle fee" : ` · hour ${Number.isSafeInteger(data.hourInDay) ? data.hourInDay : 1}`}`,
         createdAt: data.createdAt ?? null,
       };
     });

@@ -44,6 +44,15 @@ interface DepositAsset {
   networks: DepositNetwork[];
 }
 
+interface DepositQuote {
+  quoteId: string;
+  amountCents: number;
+  cryptoAmount: string;
+  priceUsd: number;
+  quotedAtMs: number;
+  expiresAtMs: number;
+}
+
 interface UploadSignature {
   apiKey: string;
   cloudName: string;
@@ -70,7 +79,7 @@ interface AssistantMessage {
   time: Date;
 }
 
-const logoUrl = "/triplex-logo.png";
+const logoUrl = "/tripleapex.png";
 const whatsappUrl = "https://wa.me/447950484434";
 const route = window.location.pathname.split("/").pop()?.toLowerCase() ?? "";
 const pageRoutes: Record<string, string> = {
@@ -81,6 +90,8 @@ const pageRoutes: Record<string, string> = {
   "admin.html": "admin",
   "profit.html": "profit",
   "assistant.html": "assistant",
+  "activity.html": "activity",
+  "referrals.html": "referrals",
   "receipts.html": "receipts",
   "withdrawals.html": "withdrawals",
   "members.html": "members",
@@ -133,14 +144,14 @@ window.addEventListener("appinstalled", () => {
 
 if ("serviceWorker" in navigator) {
   void navigator.serviceWorker.register("/sw.js").catch((error: unknown) => {
-    console.error("Could not register the Triplex service worker.", error);
+    console.error("Could not register the TRIPLEAPEX service worker.", error);
   });
 }
 
-function showBoot(message = "Triplex is loading") {
+function showBoot(message = "TRIPLEAPEX is loading") {
   appRoot.innerHTML = `
     <main class="boot-screen" aria-live="polite">
-      <img src="${logoUrl}" alt="Triplex" class="boot-logo">
+      <img src="${logoUrl}" alt="TRIPLEAPEX" class="boot-logo">
       <span class="loader-orbit" aria-hidden="true"></span>
       <p>${message}</p>
       <span class="boot-caption">SECURE ACCOUNT ACCESS</span>
@@ -153,8 +164,8 @@ function frame(content: string, activePage: string, username: string | null) {
     <div class="app-shell">
       <div class="mobile-scrim" id="mobile-scrim"></div>
       <header class="mobile-header">
-        <a class="brand brand-mobile" href="index.html" aria-label="Triplex dashboard">
-          <img src="${logoUrl}" alt="Triplex">
+        <a class="brand brand-mobile" href="index.html" aria-label="TRIPLEAPEX dashboard">
+          <img src="${logoUrl}" alt="TRIPLEAPEX">
         </a>
         <div class="mobile-controls">
           ${notificationButton("mobile")}
@@ -165,19 +176,21 @@ function frame(content: string, activePage: string, username: string | null) {
         </div>
       </header>
       <aside class="sidebar" id="sidebar" aria-label="Main navigation">
-        <a class="brand brand-desktop" href="index.html" aria-label="Triplex dashboard">
-          <img src="${logoUrl}" alt="Triplex">
+        <a class="brand brand-desktop" href="index.html" aria-label="TRIPLEAPEX dashboard">
+          <img src="${logoUrl}" alt="TRIPLEAPEX">
         </a>
         <div class="side-account">
           <span class="side-avatar">${username ? escapeHtml(username.slice(0, 2).toUpperCase()) : "TP"}</span>
-          <span><strong>${signedInName}</strong><small>${currentUser ? "Triplex account" : "Guest account"}</small></span>
+          <span><strong>${signedInName}</strong><small>${currentUser ? "TRIPLEAPEX account" : "Guest account"}</small></span>
         </div>
         <p class="nav-label">Workspace</p>
         <nav class="nav">
           <a href="index.html" ${activePage === "dashboard" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-overview" aria-hidden="true">▦</span>Overview</a>
           <a href="index.html#activity"><span class="nav-icon nav-icon-activity" aria-hidden="true">◷</span>Activity</a>
+          <a href="activity.html" ${activePage === "activity" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-activity" aria-hidden="true">▤</span>Full activity</a>
           <a href="profit.html" ${activePage === "profit" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-profit" aria-hidden="true">↗</span>Profit progress</a>
-          <a href="assistant.html" ${activePage === "assistant" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-assistant" aria-hidden="true">✦</span>TRIPLEX AI ASSISTANT</a>
+          <a href="referrals.html" ${activePage === "referrals" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-members" aria-hidden="true">♧</span>Referrals</a>
+          <a href="assistant.html" ${activePage === "assistant" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-assistant" aria-hidden="true">✦</span>TRIPLEAPEX AI ASSISTANT</a>
           <a href="contact.html" ${activePage === "contact" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-contact" aria-hidden="true">✉</span>Contact</a>
           ${currentRole === "admin" ? `
             <a href="admin.html" ${activePage === "admin" ? 'aria-current="page"' : ""}><span class="nav-icon nav-icon-admin" aria-hidden="true">◆</span>Admin</a>
@@ -204,7 +217,7 @@ function frame(content: string, activePage: string, username: string | null) {
         <div class="content">${content}</div>
       </main>
     </div>
-    <a class="whatsapp-float" href="${whatsappUrl}" target="_blank" rel="noopener noreferrer" aria-label="Chat with Triplex on WhatsApp">
+    <a class="whatsapp-float" href="${whatsappUrl}" target="_blank" rel="noopener noreferrer" aria-label="Chat with TRIPLEAPEX on WhatsApp">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3.5A11.8 11.8 0 0 0 12.1 0C5.6 0 .3 5.3.3 11.8c0 2.1.5 4.1 1.6 5.9L.2 24l6.5-1.7a11.8 11.8 0 0 0 5.4 1.4h.1c6.5 0 11.8-5.3 11.8-11.8 0-3.1-1.2-6.1-3.5-8.4ZM12.1 21.7a9.9 9.9 0 0 1-5-1.4l-.4-.2-3.9 1 1-3.8-.3-.4a9.9 9.9 0 1 1 8.6 4.8Zm5.4-7.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.2-.7.2-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-.3-.2-1.2-.4-2.3-1.4-.9-.8-1.5-1.7-1.7-2-.2-.3 0-.5.1-.6l.5-.6.3-.5c.1-.2 0-.4 0-.6-.1-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1.2 1.1-1.2 2.6s1.2 3 1.4 3.2c.2.2 2.3 3.5 5.6 4.9.8.4 1.5.6 2 .7.8.3 1.6.2 2.2.1.7-.1 1.7-.7 1.9-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.3-.6-.4Z"/></svg>
     </a>`;
   bindShellEvents();
@@ -248,7 +261,9 @@ function pageTitle(activePage: string) {
   switch (activePage) {
     case "contact": return "Contact";
     case "profit": return "Profit progress";
-    case "assistant": return "TRIPLEX AI ASSISTANT";
+    case "activity": return "Full activity";
+    case "referrals": return "Referrals";
+    case "assistant": return "TRIPLEAPEX AI ASSISTANT";
     case "admin": return "Admin";
     case "receipts": return "Receipts";
     case "withdrawals": return "Withdrawals";
@@ -393,7 +408,7 @@ function renderDashboard() {
   frame(`
     <p class="eyebrow">Your dashboard</p>
     <h1>${currentUsername ? `Hi, ${escapeHtml(currentUsername)}` : "Account overview"}</h1>
-    <p class="intro">${currentUser ? "Here is an overview of your Triplex account." : "Sign in to access your Triplex account."}</p>
+    <p class="intro">${currentUser ? "Here is an overview of your TRIPLEAPEX account." : "Sign in to access your TRIPLEAPEX account."}</p>
     <section class="balance-card" aria-labelledby="balance-heading">
       <div class="balance-top">
         <div><p class="balance-label" id="balance-heading">Total balance</p><span class="balance-caption">${currentUser ? "Available balance" : "Sign in to view your account"}</span></div>
@@ -410,7 +425,7 @@ function renderDashboard() {
       <button class="action-button" type="button" data-action="transfer"><span class="action-symbol" aria-hidden="true">↗</span>Transfer</button>
     </div>
     <section id="activity" aria-labelledby="activity-heading">
-      <div class="section-heading"><div><p class="eyebrow">Your account</p><h2 id="activity-heading">Recent activity</h2></div><a class="section-link" href="profit.html">Profit progress <span aria-hidden="true">→</span></a></div>
+      <div class="section-heading"><div><p class="eyebrow">Your account</p><h2 id="activity-heading">Recent activity</h2></div><a class="section-link" href="activity.html">View full activity <span aria-hidden="true">→</span></a></div>
       <div class="activity-card" id="activity-list"></div>
     </section>`, "dashboard", currentUsername);
 
@@ -437,7 +452,7 @@ function renderDashboard() {
 }
 
 function renderActivity() {
-  const activityRoot = document.querySelector<HTMLDivElement>("#activity-list");
+  const activityRoot = document.querySelector<HTMLDivElement>("#activity-list, #full-activity-list");
   if (!activityRoot) return;
   if (!accountActivity.length) {
     activityRoot.innerHTML = '<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">↗</span><p>No activity to show yet. Your account activity will appear here.</p></div>';
@@ -447,6 +462,7 @@ function renderActivity() {
     const incoming = item.type === "received"
       || (item.type === "deposit" && item.status === "approved")
       || (item.type === "withdrawal" && item.status === "rejected")
+      || item.type === "referral"
       || (item.type === "profit" && item.amountCents > 0);
     let title: string;
     if (item.type === "deposit") {
@@ -455,6 +471,8 @@ function renderActivity() {
       title = item.status === "completed" ? "Withdrawal sent" : item.status === "rejected" ? "Withdrawal returned" : "Withdrawal request";
     } else if (item.type === "profit") {
       title = item.status === "fee" ? "Cycle fee" : "Profit credited";
+    } else if (item.type === "referral") {
+      title = "Referral reward";
     } else {
       title = item.type === "received" ? "Transfer received" : "Transfer sent";
     }
@@ -463,12 +481,20 @@ function renderActivity() {
       || (item.type === "profit" && item.amountCents < 0);
     const sign = incoming ? "+" : outgoing ? "−" : "";
     return `<article class="activity-row">
-      <span class="activity-row-icon ${incoming ? "is-incoming" : ""}" aria-hidden="true">${item.type === "deposit" ? "↓" : item.type === "withdrawal" ? "↑" : item.type === "profit" ? item.amountCents < 0 ? "−" : "↗" : item.type === "received" ? "↙" : "↗"}</span>
+      <span class="activity-row-icon ${incoming ? "is-incoming" : ""}" aria-hidden="true">${item.type === "deposit" ? "↓" : item.type === "withdrawal" ? "↑" : item.type === "referral" ? "♧" : item.type === "profit" ? item.amountCents < 0 ? "−" : "↗" : item.type === "received" ? "↙" : "↗"}</span>
       <span class="activity-row-copy"><strong>${title}</strong><small>${escapeHtml(item.detail)} · ${escapeHtml(timestamp)}</small></span>
       <span class="activity-row-amount ${incoming ? "is-incoming" : outgoing ? "is-outgoing" : ""}">${sign}${formatCurrency(Math.abs(item.amountCents))}</span>
       <span class="activity-status status-${escapeHtml(item.status)}">${escapeHtml(capitalize(item.status))}</span>
     </article>`;
   }).join("")}</div>`;
+}
+
+function renderActivityPage() {
+  const activityContent = currentUser
+    ? `<section class="full-activity-card" aria-label="All account activity"><div class="activity-card" id="full-activity-list"><div class="deposit-loading"><span class="loader-orbit"></span><p>Loading your activity…</p></div></div></section>`
+    : `<section class="progress-empty-state"><div><h2>Sign in to view your activity</h2><p>Your complete account history is available after you log in.</p></div><a class="button button-primary" href="login.html">Log in</a></section>`;
+  frame(`<p class="eyebrow">Account records</p><h1>Full activity</h1><p class="intro">A complete, newest-first history of deposits, transfers, withdrawals, cycle earnings, fees, and referral rewards.</p>${activityContent}`, "activity", currentUsername);
+  renderActivity();
 }
 
 function updateBalanceGrowth() {
@@ -484,36 +510,41 @@ function updateBalanceGrowth() {
 function renderProfitPage() {
   const projection: {
     day: number;
-    openingCents: number;
-    growthCents: number;
-    postGrowthCents: number;
-    feeCents: number;
-    netCents: number;
+    openingUsd: number;
+    growthUsd: number;
+    postGrowthUsd: number;
+    feeUsd: number;
+    netUsd: number;
+    pnlUsd: number;
   }[] = [];
-  let openingCents = 1_000;
+  let openingUsd = 10;
   for (let day = 1; day <= 5; day += 1) {
-    const growthCents = Math.round(openingCents * 0.053);
-    const postGrowthCents = openingCents + growthCents;
-    const feeCents = Math.round(postGrowthCents * 0.01);
-    const netCents = postGrowthCents - feeCents;
+    const growthUsd = openingUsd * 0.195;
+    const postGrowthUsd = openingUsd * 1.195;
+    const feeUsd = postGrowthUsd * 0.04;
+    const netUsd = postGrowthUsd * 0.96;
     projection.push({
       day,
-      openingCents,
-      growthCents,
-      postGrowthCents,
-      feeCents,
-      netCents,
+      openingUsd,
+      growthUsd,
+      postGrowthUsd,
+      feeUsd,
+      netUsd,
+      pnlUsd: netUsd - openingUsd,
     });
-    openingCents = netCents;
+    openingUsd = netUsd;
   }
-  const coordinates = projection.map((row, index) => {
-    const x = 28 + index * 86;
-    const y = 124 - (row.netCents / projection[projection.length - 1].netCents) * 90;
+  const formatUsd = (amount: number) => formatCurrency(Math.round(amount * 100));
+  const scheduleValues = [10, ...projection.map((row) => row.netUsd)];
+  const coordinates = scheduleValues.map((amount, index) => {
+    const x = 28 + index * 67;
+    const y = 124 - ((amount - 10) / (projection[projection.length - 1].netUsd - 10)) * 88;
     return { x, y: y.toFixed(1) };
   });
   const points = coordinates.map((point) => `${point.x},${point.y}`).join(" ");
   const areaPath = `M${coordinates[0].x} ${coordinates[0].y} ${coordinates.slice(1).map((point) => `L${point.x} ${point.y}`).join(" ")} L${coordinates[coordinates.length - 1].x} 136 L${coordinates[0].x} 136 Z`;
-  const finalCents = projection[projection.length - 1].netCents;
+  const finalUsd = projection[projection.length - 1].netUsd;
+  const totalFeesUsd = projection.reduce((total, row) => total + row.feeUsd, 0);
   const activeCycle = currentProfitCycle?.status === "active" ? currentProfitCycle : null;
   const completedCycle = currentProfitCycle?.status === "completed" ? currentProfitCycle : null;
   const cycleProgressHours = activeCycle
@@ -532,7 +563,7 @@ function renderProfitPage() {
           <div><span>Fee deducted</span><strong class="cycle-negative">−${formatCurrency(activeCycle.totalFeeCents)}</strong></div>
           <div><span>Growing amount</span><strong>${formatCurrency(activeCycle.currentAmountCents)}</strong></div>
         </div>
-        <p class="cycle-status-copy">Hourly earnings are added to your available balance. Withdrawals and transfers are paused until the five-day cycle finishes.</p>
+        <p class="cycle-status-copy">Hourly earnings use ${(activeCycle.dailyGrowthRate * 100).toFixed(1)}% daily growth. A ${(activeCycle.dailyFeeRate * 100).toFixed(1)}% fee is deducted after each day's growth. Withdrawals and transfers are paused until the five-day cycle finishes.</p>
         <button class="button button-secondary" type="button" disabled>Withdrawals available after cycle completion</button>
       </section>`
     : completedCycle
@@ -549,30 +580,35 @@ function renderProfitPage() {
   frame(`
     <p class="eyebrow">Account growth</p>
     <h1>Profit progress</h1>
-    <p class="intro">Follow your five-day cycle and review the daily growth, fees, and account activity.</p>
-    <section class="profit-terminal" aria-label="Account balance and five-day growth schedule">
-      <div class="profit-terminal-head"><span class="profit-market-tag"><i></i> ACCOUNT BALANCE</span><span class="profit-illustration-tag">5 DAY CYCLE</span></div>
-      <div class="profit-terminal-grid">
-        <div class="profit-equity"><span>Available balance</span><strong id="profit-balance">${formatCurrency(currentUser ? balanceCents : 0)} <small>USD</small></strong><p>${currentUser ? "Current credited balance" : "Log in to view your account balance"}</p>${currentProfitCycle && currentProfitCycle.totalProfitCents > currentProfitCycle.totalFeeCents ? `<p class="profit-balance-growth">Cycle earnings +${formatCurrency(currentProfitCycle.totalProfitCents - currentProfitCycle.totalFeeCents)}</p>` : ""}</div>
-        <div class="profit-projected"><span>Net after day 5</span><strong>${formatCurrency(finalCents)}</strong><p>From a $10.00 starting amount</p></div>
+    <p class="intro">A five-day illustrative schedule with hourly earnings and daily fees.</p>
+    <section class="projection-card trading-dashboard" aria-labelledby="projection-heading">
+      <header class="trading-header">
+        <div><p class="trading-brand">TRIPLEAPEX <span>FX</span></p><p class="trading-kicker">FIVE-DAY SCHEDULE <i>•</i> USD</p><h1 id="projection-heading">Calculation for a $10.00 start</h1></div>
+        <span class="projection-badge"><i></i>19.5% Daily Growth</span>
+      </header>
+      <div class="trading-divider"></div>
+      <section class="trading-chart-card">
+        <div class="trading-chart-heading"><div><span>EQUITY CURVE</span><strong>${formatUsd(10)} <i>→</i> ${formatUsd(finalUsd)}</strong></div><span class="trading-live"><i></i> LIVE</span></div>
+        <svg class="profit-chart" viewBox="0 0 400 150" role="img" aria-label="Illustrative five-day equity curve from $10.00 to ${formatUsd(finalUsd)}">
+          <defs><linearGradient id="profit-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#20c978" stop-opacity=".25"/><stop offset="1" stop-color="#20c978" stop-opacity="0"/></linearGradient></defs>
+          <path class="profit-chart-area" d="${areaPath}"/>
+          <polyline class="profit-chart-line" points="${points}"/>
+          <circle class="profit-chart-start" cx="${coordinates[0].x}" cy="${coordinates[0].y}" r="4"><title>Start: $10.00</title></circle>
+          ${projection.map((row, index) => `<circle class="profit-chart-point" cx="${coordinates[index + 1].x}" cy="${coordinates[index + 1].y}" r="4"><title>Day ${row.day}: ${formatUsd(row.netUsd)}</title></circle>`).join("")}
+        </svg>
+        <div class="profit-chart-labels"><span>START</span><span>DAY 1</span><span>DAY 2</span><span>DAY 3</span><span>DAY 4</span><span>DAY 5</span></div>
+      </section>
+      <div class="trading-stat-grid">
+        <div><span>Starting amount</span><strong>${formatUsd(10)}</strong></div>
+        <div><span>Total fees</span><strong class="projection-fee">−${formatUsd(totalFeesUsd)}</strong></div>
+        <div><span>Net after day 5</span><strong class="projection-net">${formatUsd(finalUsd)}</strong></div>
       </div>
-      <div class="profit-chart-heading"><span>NET AMOUNT BY DAY</span></div>
-      <svg class="profit-chart" viewBox="0 0 400 150" role="img" aria-label="Five-day growth schedule from a $10 starting amount">
-        <defs><linearGradient id="profit-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#20c978" stop-opacity=".28"/><stop offset="1" stop-color="#20c978" stop-opacity="0"/></linearGradient></defs>
-        <path class="profit-chart-area" d="${areaPath}"/>
-        <polyline class="profit-chart-line" points="${points}"/>
-        ${projection.map((row, index) => `<circle class="profit-chart-point" cx="${coordinates[index].x}" cy="${coordinates[index].y}" r="4"><title>Day ${row.day}: ${formatCurrency(row.netCents)}</title></circle>`).join("")}
-      </svg>
-      <div class="profit-chart-labels"><span>Day 1</span><span>Day 2</span><span>Day 3</span><span>Day 4</span><span>Day 5</span></div>
-    </section>
-    <section class="projection-card" aria-labelledby="projection-heading">
-      <div class="projection-heading"><div><p class="eyebrow">Five-day schedule · USD</p><h2 id="projection-heading">Calculation for a $10.00 start</h2></div><span class="projection-badge">5.3% daily growth</span></div>
       <div class="projection-table-wrap"><table class="projection-table">
-        <thead><tr><th>Day</th><th>Opening</th><th>Daily growth</th><th>After growth</th><th>Fee · 1%</th><th>Net amount</th></tr></thead>
-        <tbody>${projection.map((row) => `<tr><td>Day ${row.day}</td><td>${formatCurrency(row.openingCents)}</td><td class="projection-net">+${formatCurrency(row.growthCents)}</td><td>${formatCurrency(row.postGrowthCents)}</td><td class="projection-fee">−${formatCurrency(row.feeCents)}</td><td class="projection-net">${formatCurrency(row.netCents)}</td></tr>`).join("")}</tbody>
+        <thead><tr><th>Day</th><th>Opening</th><th>Daily Growth (+19.5%)</th><th>After Growth</th><th>Fee −4%</th><th>Net Amount</th><th>Daily P&amp;L</th></tr></thead>
+        <tbody>${projection.map((row) => `<tr><td><span class="projection-day"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14m6-11v10m6-13v13" stroke="currentColor" stroke-width="1.2"/><rect x="2.5" y="6" width="3" height="5" rx=".7" fill="currentColor"/><rect x="8.5" y="9" width="3" height="4" rx=".7" fill="currentColor"/><rect x="14.5" y="4" width="3" height="6" rx=".7" fill="currentColor"/></svg>Day ${row.day}</span></td><td>${formatUsd(row.openingUsd)}</td><td class="projection-net">+${formatUsd(row.growthUsd)}</td><td>${formatUsd(row.postGrowthUsd)}</td><td class="projection-fee">−${formatUsd(row.feeUsd)}</td><td class="projection-net">${formatUsd(row.netUsd)}</td><td class="projection-net">+${formatUsd(row.pnlUsd)}</td></tr>`).join("")}</tbody>
       </table></div>
-      <div class="projection-summary"><span>Starting amount <strong>${formatCurrency(1_000)}</strong></span><span>Total fees <strong>−${formatCurrency(projection.reduce((total, row) => total + row.feeCents, 0))}</strong></span><span>Net after day 5 <strong>${formatCurrency(finalCents)}</strong></span></div>
-      <p class="cycle-formula-note">The table calculates a $10.00 starting amount. A different cycle amount follows the same daily 5.3% growth, then a 1% fee on the amount after growth. Hourly earnings are credited to your available balance; the daily fee is recorded at the end of each 24-hour period.</p>
+      <div class="projection-mobile-list">${projection.map((row) => `<article class="projection-mobile-row"><header><span class="projection-day"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14m6-11v10m6-13v13" stroke="currentColor" stroke-width="1.2"/><rect x="2.5" y="6" width="3" height="5" rx=".7" fill="currentColor"/><rect x="8.5" y="9" width="3" height="4" rx=".7" fill="currentColor"/><rect x="14.5" y="4" width="3" height="6" rx=".7" fill="currentColor"/></svg>Day ${row.day}</span><strong>Daily P&amp;L <i>+${formatUsd(row.pnlUsd)}</i></strong></header><dl><div><dt>Opening</dt><dd>${formatUsd(row.openingUsd)}</dd></div><div><dt>Growth · 19.5%</dt><dd class="projection-net">+${formatUsd(row.growthUsd)}</dd></div><div><dt>After growth</dt><dd>${formatUsd(row.postGrowthUsd)}</dd></div><div><dt>Fee · 4%</dt><dd class="projection-fee">−${formatUsd(row.feeUsd)}</dd></div><div class="projection-mobile-net"><dt>Net amount</dt><dd class="projection-net">${formatUsd(row.netUsd)}</dd></div></dl></article>`).join("")}</div>
+      <p class="cycle-formula-note">Illustrative calculation based on 19.5% daily growth and 4% fee. Trading involves risk.</p>
     </section>
     ${cyclePanel}
     <div class="progress-page-actions"><a class="button button-secondary" href="index.html#activity">View account activity</a><a class="button button-secondary" href="assistant.html">Ask the assistant</a></div>`, "profit", currentUsername);
@@ -593,16 +629,16 @@ function renderProfitPage() {
 
 function renderAssistantPage() {
   frame(`
-    <p class="eyebrow">Triplex help</p>
-    <h1>TRIPLEX AI ASSISTANT</h1>
+    <p class="eyebrow">TRIPLEAPEX help</p>
+    <h1>TRIPLEAPEX AI ASSISTANT</h1>
     <p class="intro">Ask about features and steps available on this website.</p>
-    <section class="assistant-shell" aria-label="Triplex help chat">
+    <section class="assistant-shell" aria-label="TRIPLEAPEX help chat">
       <header class="assistant-header">
         <span class="assistant-mascot" data-mascot aria-hidden="true"><span>✦</span></span>
-        <div class="assistant-heading"><strong>TRIPLEX AI ASSISTANT</strong><span>Triplex website help · ready to assist</span></div>
+        <div class="assistant-heading"><strong>TRIPLEAPEX AI ASSISTANT</strong><span>TRIPLEAPEX website help · ready to assist</span></div>
         <button class="assistant-reset" id="assistant-reset" type="button">New chat</button>
       </header>
-      <div class="assistant-welcome"><span class="assistant-welcome-kicker">WELCOME TO TRIPLEX</span><h2>How can I help?</h2><p>Get clear guidance on deposits, network choices, account activity, and the cycle breakdown. For account-specific payment updates, check your notifications or contact support.</p></div>
+      <div class="assistant-welcome"><span class="assistant-welcome-kicker">WELCOME TO TRIPLEAPEX</span><h2>How can I help?</h2><p>Get clear guidance on deposits, network choices, account activity, and the cycle breakdown. For account-specific payment updates, check your notifications or contact support.</p></div>
       <details class="assistant-suggestions" open>
         <summary>View suggestions</summary>
         <div class="assistant-suggestion-list">
@@ -614,6 +650,8 @@ function renderAssistantPage() {
             "How long does deposit review take?",
             "How do actual earnings get added?",
             "How long is a profit cycle?",
+            "How do referral agents earn?",
+            "How do I apply to be a referral agent?",
             "Can I withdraw?",
             "How do I contact support?",
           ].map((suggestion) => `<button type="button" class="assistant-suggestion">${escapeHtml(suggestion)}</button>`).join("")}
@@ -622,7 +660,7 @@ function renderAssistantPage() {
       <div class="assistant-messages" id="assistant-messages" role="log" aria-live="polite" aria-relevant="additions text" aria-label="Chat messages"></div>
       <p class="assistant-typing-status" id="assistant-typing-status" role="status" aria-live="polite"></p>
       <form class="assistant-form" id="assistant-form">
-        <label class="sr-only" for="assistant-input">Message Triplex AI Assistant</label>
+        <label class="sr-only" for="assistant-input">Message TRIPLEAPEX AI Assistant</label>
         <textarea id="assistant-input" name="message" rows="1" maxlength="500" placeholder="Ask a question…" autocomplete="off"></textarea>
         <button class="assistant-send" id="assistant-send" type="submit" aria-label="Send message" disabled><span aria-hidden="true">➤</span></button>
       </form>
@@ -674,7 +712,7 @@ function renderAssistantPage() {
 
   const greeting = (): AssistantMessage => ({
     sender: "assistant",
-    text: "Hi! Welcome to Triplex. I can guide you through deposits, supported networks, account activity, and the cycle breakdown. What can I help you with today?",
+    text: "Hi! Welcome to TRIPLEAPEX. I can guide you through deposits, supported networks, account activity, and the cycle breakdown. What can I help you with today?",
     time: new Date(),
   });
   appendMessage(greeting());
@@ -697,19 +735,25 @@ function renderAssistantPage() {
       return { text: "You’re welcome. If you have another question about the site, feel free to ask." };
     }
     if (/\b(bye|goodbye|see you)\b/.test(normalized)) {
-      return { text: "Thanks for visiting Triplex. Contact support if you need help with an account or payment." };
+      return { text: "Thanks for visiting TRIPLEAPEX. Contact support if you need help with an account or payment." };
     }
     if (/\b(help|what can you do|what can i ask)\b/.test(normalized)) {
-      return { text: "I can walk you through making a deposit, choosing the matching network, checking account activity, understanding the five-day profit cycle, submitting a withdrawal request, transferring to another Triplex user, or contacting support. Choose a suggestion below or type your question." };
+      return { text: "I can walk you through making a deposit, choosing the matching network, checking account activity, understanding the five-day profit cycle, submitting a withdrawal request, transferring to another TRIPLEAPEX user, or contacting support. Choose a suggestion below or type your question." };
+    }
+    if (/\b(referr(al|er|ing)|agent)\b/.test(normalized) && /\b(apply|application|join|become|closed|open)\b/.test(normalized)) {
+      return { text: "Referral agent applications are closed for 2026. This year's batch has 86 agents, and applications are scheduled to reopen on January 5, 2027. You can still add a referral agent's code on the Referrals page.", link: { label: "Open referrals", href: "referrals.html" } };
+    }
+    if (/\b(referr(al|er|ing)|agent)\b/.test(normalized) && /\b(earn|make|reward|commission|profit|paid|deposit|top ?up)\b/.test(normalized)) {
+      return { text: "A referral agent receives $100 in their TRIPLEAPEX balance after a referred member's first deposit is approved. When that member completes a five-day cycle, the agent also receives 10% of the member's net cycle profit after fees. Both rewards are credited to the agent's available USD balance; they are not automatically withdrawn.", link: { label: "Open referrals", href: "referrals.html" } };
     }
     if (/\b(wrong network|wrong chain|sent to the wrong|wrong address)\b/.test(normalized)) {
-      return { text: "Please contact Triplex support as soon as possible and include the asset, network, destination address, and transaction hash. Recovery depends on the network and receiving wallet and cannot be guaranteed, so please don’t send another payment until support has advised you.", link: { label: "Contact customer support", href: "contact.html" } };
+      return { text: "Please contact TRIPLEAPEX support as soon as possible and include the asset, network, destination address, and transaction hash. Recovery depends on the network and receiving wallet and cannot be guaranteed, so please don’t send another payment until support has advised you.", link: { label: "Contact customer support", href: "contact.html" } };
     }
     if (/\b(first|initial).{0,20}(deposit|gift|bonus)\b|\b(deposit|gift|bonus).{0,20}(first|20 ?%)\b/.test(normalized)) {
       return { text: "Eligible accounts receive a 20% gift bonus on their first approved deposit. The deposit screen previews the estimated bonus; the bonus is credited to your USD balance together with the deposit after approval. Each account can receive this bonus once." };
     }
     if (/\b(network|chain|which.*(send|choose)|send.*(usdt|usdc|crypto))\b/.test(normalized)) {
-      return { text: "For a successful deposit, select the same asset and exact same network in Triplex and in your sending wallet. The deposit screen lists the networks currently available for each asset. Check the full destination address and network before confirming your transfer.", link: { label: "Open your dashboard", href: "index.html" } };
+      return { text: "For a successful deposit, select the same asset and exact same network in TRIPLEAPEX and in your sending wallet. The deposit screen lists the networks currently available for each asset. Check the full destination address and network before confirming your transfer.", link: { label: "Open your dashboard", href: "index.html" } };
     }
     if (/\b(deposit|receipt|proof of payment|payment request)\b/.test(normalized)) {
       return { text: "To deposit, sign in and open Deposit from your dashboard. Choose an asset and an available network, copy the displayed address, and enter at least $10 USD. You can attach a JPG, PNG, WebP, or PDF receipt, then confirm and submit your request. Your USD balance updates after the deposit has been reviewed and approved.", link: { label: "Start a deposit", href: "index.html" } };
@@ -718,28 +762,28 @@ function renderAssistantPage() {
       return { text: "Deposit reviews usually take about 24 hours. If 24 hours have passed without an update, please message customer support and include your deposit details. You’ll also receive an in-app notification when your request is reviewed; approved deposits are then added to your USD balance.", link: { label: "Contact customer support", href: "contact.html" } };
     }
     if (/\b(actual )?earnings?\b|\b(per|each|every) cycle\b/.test(normalized)) {
-      return { text: "A profit cycle lasts five days. Earnings are calculated at 5.3% per day and credited in hourly portions. At the end of each 24-hour day, a 1% fee is deducted from the amount after growth, and that net amount is used as the next day's opening amount. Your activity shows each hourly credit and daily fee. Withdrawals and transfers are paused until the cycle completes.", link: { label: "View profit progress", href: "profit.html" } };
+      return { text: "A profit cycle lasts five days. Earnings are calculated at 19.5% per day and credited in hourly portions. At the end of each 24-hour day, a 4% fee is deducted from the amount after growth, and that net amount is used as the next day's opening amount. Your activity shows each hourly credit and daily fee. Withdrawals and transfers are paused until the cycle completes.", link: { label: "View profit progress", href: "profit.html" } };
     }
     if (/\b(how long|duration|days?).*(profit|cycle)|(profit|cycle).*(how long|duration|days?)\b/.test(normalized)) {
       return { text: "Each profit cycle runs for five days. The Profit progress page shows the current day, time remaining, earnings credited, and fees deducted. When day five is complete, the reserved starting amount returns to your available balance and withdrawals reopen.", link: { label: "View profit progress", href: "profit.html" } };
     }
     if (/\b(fee|charge|service charge|cost)\b/.test(normalized)) {
-      return { text: "The profit cycle deducts a 1% fee at the end of each 24-hour day. The fee is calculated from that day's amount after the 5.3% growth and appears as a separate red entry in account activity.", link: { label: "View profit progress", href: "profit.html" } };
+      return { text: "The profit cycle deducts a 4% fee at the end of each 24-hour day. The fee is calculated from that day's amount after 19.5% growth and appears as a separate red entry in account activity.", link: { label: "View profit progress", href: "profit.html" } };
     }
     if (/\b(profit|earning|growth|return|5\.3|projection|progress)\b/.test(normalized)) {
-      return { text: "Profit progress shows a five-day calculation based on a $10 starting amount: 5.3% daily growth, followed by a 1% fee on the post-growth amount. Your selected amount is reserved for the five-day cycle; hourly earnings and daily fees appear in your activity as they are processed.", link: { label: "View profit progress", href: "profit.html" } };
+      return { text: "Profit progress shows a five-day calculation based on a $10 starting amount: 19.5% daily growth, followed by a 4% fee on the post-growth amount. Your selected amount is reserved for the five-day cycle; hourly earnings and daily fees appear in your activity as they are processed.", link: { label: "View profit progress", href: "profit.html" } };
     }
     if (/\b(withdraw|cash ?out)\b/.test(normalized)) {
       return { text: "You can submit a withdrawal request from the dashboard. Choose the cryptocurrency and network, enter the USD amount (minimum $20), and carefully check the destination wallet address. The requested amount is reserved from your balance while an admin reviews and manually processes the payment. You’ll be notified when it is marked paid or rejected; if rejected, the reserved amount is returned to your balance.", link: { label: "Open your dashboard", href: "index.html" } };
     }
     if (/\b(transfer|send.*user|username)\b/.test(normalized)) {
-      return { text: "You can transfer funds to another Triplex account from your dashboard. Enter the recipient’s username and amount, double-check the username, then confirm the transfer.", link: { label: "Open your dashboard", href: "index.html" } };
+      return { text: "You can transfer funds to another TRIPLEAPEX account from your dashboard. Enter the recipient’s username and amount, double-check the username, then confirm the transfer.", link: { label: "Open your dashboard", href: "index.html" } };
     }
     if (/\b(login|log in|sign in|account|google)\b/.test(normalized)) {
       return { text: "Getting started is simple: choose Log in or Create account, continue securely with Google, and choose a username if prompted.", link: { label: "Continue to log in", href: "login.html" } };
     }
     if (/\b(support|contact|whatsapp|help desk)\b/.test(normalized)) {
-      return { text: "The Contact page has the Triplex customer support WhatsApp link. Include a short description of what you need help with, and never share your password, verification codes, or wallet recovery phrase.", link: { label: "Contact customer support", href: "contact.html" } };
+      return { text: "The Contact page has the TRIPLEAPEX customer support WhatsApp link. Include a short description of what you need help with, and never share your password, verification codes, or wallet recovery phrase.", link: { label: "Contact customer support", href: "contact.html" } };
     }
     return { text: "I want to make sure you get accurate information. I can help with deposits, network selection, deposit reviews, transfers, and the cycle breakdown. For anything account-specific, customer support can assist you directly.", link: { label: "Contact customer support", href: "contact.html" } };
   };
@@ -753,7 +797,7 @@ function renderAssistantPage() {
     responding = true;
     send.disabled = true;
     reset.disabled = true;
-    status.textContent = "Triplex Assistant is preparing a reply.";
+    status.textContent = "TRIPLEAPEX Assistant is preparing a reply.";
     mascot.classList.add("is-thinking");
     const typing = document.createElement("div");
     typing.className = "assistant-typing";
@@ -797,6 +841,21 @@ function renderAssistantPage() {
   });
 }
 
+function cryptoIcon(code: string) {
+  const icons: Record<string, string> = {
+    BTC: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#F7931A"/><path d="M25.7 18.1c1.8-1 2.7-2.6 2.2-4.5-.6-2.3-2.8-3.1-5.7-3.4V6.5h-2.4v3.5h-1.9V6.5h-2.4v3.7h-3v2.6h2.1v14.4h-2.1v2.6h3v3.7h2.4v-3.5h1.9v3.5h2.4v-3.7c4.2-.3 6.7-1.7 7.2-4.7.4-2.4-.7-4-3.7-5zm-7.8-5.1c1.8 0 4.8-.4 4.8 2.2 0 2.4-2.8 2.2-4.8 2.2v-4.4zm0 12.5v-5c2.2 0 6-.6 6 2.5 0 2.8-3.8 2.5-6 2.5z" fill="#fff"/></svg>',
+    USDT: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#26A17B"/><path fill="#fff" d="M10 10h20v4h-7.7v3.2c4.3.2 7.4.9 7.4 1.8v2.6c0 1-3.1 1.7-7.4 1.9v7.1h-4.6v-7.1c-4.3-.2-7.4-.9-7.4-1.9V19c0-.9 3.1-1.6 7.4-1.8V14H10v-4zm10 9.1c-4.2 0-7.1.5-7.1 1.1s3 1.1 7.1 1.1 7.1-.5 7.1-1.1-3-1.1-7.1-1.1z"/></svg>',
+    USDC: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#2775CA"/><path d="M20 7a13 13 0 1 0 0 26 13 13 0 0 0 0-26z" fill="none" stroke="#fff" stroke-width="2.4"/><path d="M22.8 13.2c-.8-.5-1.7-.8-2.8-.8-2.3 0-3.8 1.2-3.8 3 0 1.7 1.3 2.4 3.8 3 2.2.5 3.4 1 3.4 2.6 0 1.8-1.6 2.9-4 2.9-1.4 0-2.7-.4-3.8-1.3M20 10.1v19.8" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="2.2"/></svg>',
+    ETH: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#F0F2F5"/><path d="m20 6-9 14 9 5 9-5L20 6zm0 29 9-12-9 5-9-5 9 12z" fill="#627EEA"/><path d="m20 6v19l9-5L20 6zm0 29 9-12-9 5v7z" fill="#3C58B8"/></svg>',
+    BNB: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#F3BA2F"/><g fill="#fff"><path d="m20 8 4.2 4.2-4.2 4.2-4.2-4.2L20 8zm-8 8 4.2 4.2L12 24.4 7.8 20 12 16zm16 0 4.2 4.2-4.2 4.2-4.2-4.2L28 16zm-8 8 4.2 4.2L20 32.4l-4.2-4.2L20 24zm0-8 4 4-4 4-4-4 4-4z"/></g></svg>',
+    SOL: '<svg viewBox="0 0 40 40"><defs><linearGradient id="sol-icon" x1="5" x2="35" y1="8" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#00FFA3"/><stop offset="1" stop-color="#DC1FFF"/></linearGradient></defs><circle cx="20" cy="20" r="20" fill="#111318"/><g fill="url(#sol-icon)"><path d="M11 12h19l-3.3 3.4H7.7L11 12zm0 6.8h19L26.7 22H7.7l3.3-3.2zm0 6.8h19l-3.3 3.4H7.7l3.3-3.4z"/></g></svg>',
+    GRAM: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#36AEEA"/><path d="m20 8 12 12-12 12L8 20 20 8z" fill="#fff"/><path d="m20 14 6 6-6 6-6-6 6-6z" fill="#36AEEA"/><circle cx="20" cy="20" r="2" fill="#fff"/></svg>',
+    TRX: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#EF0027"/><path d="m8 10 23 4-8 17L8 10zm3 2 10 15 3-10-13-5zm14 4-2 9 5-10-3 1z" fill="#fff"/></svg>',
+    SUI: '<svg viewBox="0 0 40 40"><circle cx="20" cy="20" r="20" fill="#4DA2FF"/><path d="M20 7c-3.1 4.5-8.5 10.1-8.5 16.1a8.5 8.5 0 1 0 17 0C28.5 17.1 23.1 11.5 20 7zm0 20.7a4.7 4.7 0 0 1-4.7-4.7h2.5a2.2 2.2 0 0 0 2.2 2.2v2.5z" fill="#fff"/></svg>',
+  };
+  return icons[code] || `<span>${escapeHtml(code.slice(0, 1))}</span>`;
+}
+
 async function showDepositFlow() {
   if (!currentUser) {
     showNotice("Log in to deposit", "Create an account or log in before starting a deposit.");
@@ -837,7 +896,7 @@ async function showDepositFlow() {
       <p class="deposit-intro">Choose the cryptocurrency you want to deposit.</p>
       <div class="crypto-grid">${assets.map((asset) => `
         <button class="crypto-choice" type="button" data-asset="${escapeHtml(asset.code)}">
-          <span class="crypto-symbol crypto-${escapeHtml(asset.code.toLowerCase())}">${escapeHtml(asset.symbol)}</span>
+          <span class="crypto-symbol crypto-${escapeHtml(asset.code.toLowerCase())}" aria-hidden="true">${cryptoIcon(asset.code)}</span>
           <span><strong>${escapeHtml(asset.code)}</strong><small>${escapeHtml(asset.name)}</small></span>
           <span class="crypto-chevron" aria-hidden="true">›</span>
         </button>`).join("")}</div>`;
@@ -897,6 +956,7 @@ async function showDepositFlow() {
       <div class="deposit-address"><code id="deposit-address">${escapeHtml(address)}</code><button id="copy-address" type="button">Copy</button></div>
       <label class="deposit-label" for="deposit-amount">Amount to deposit (USD)</label>
       <div class="amount-field"><span>$</span><input id="deposit-amount" type="number" min="10.00" step="0.01" inputmode="decimal" placeholder="10.00" required></div>
+      <div class="deposit-quote" id="deposit-quote" role="status" aria-live="polite">Enter an amount of at least $10.00 to calculate the crypto equivalent.</div>
       ${firstDepositBonusEligible
         ? `<section class="deposit-gift-offer" aria-label="First deposit gift bonus">
             <span class="deposit-gift-icon" aria-hidden="true">🎁</span>
@@ -926,7 +986,38 @@ async function showDepositFlow() {
     const fileNote = content.querySelector<HTMLParagraphElement>("#receipt-file-note")!;
     const preview = content.querySelector<HTMLDivElement>("#deposit-receipt-preview")!;
     const depositAmountInput = content.querySelector<HTMLInputElement>("#deposit-amount")!;
+    const depositQuote = content.querySelector<HTMLDivElement>("#deposit-quote")!;
     const bonusEstimate = content.querySelector<HTMLElement>("#deposit-bonus-estimate");
+    let activeQuote: DepositQuote | null = null;
+    let quoteTimer = 0;
+    let quoteRequest = 0;
+    const updateDepositQuote = () => {
+      const requestNumber = ++quoteRequest;
+      activeQuote = null;
+      window.clearTimeout(quoteTimer);
+      const amountCents = amountToCents(depositAmountInput.value);
+      if (amountCents < 1_000) {
+        depositQuote.classList.remove("is-error");
+        depositQuote.textContent = "Enter an amount of at least $10.00 to calculate the crypto equivalent.";
+        return;
+      }
+      depositQuote.classList.remove("is-error");
+      depositQuote.textContent = "Fetching a live USD conversion…";
+      quoteTimer = window.setTimeout(() => {
+        void apiRequest<DepositQuote & { asset: string; cryptoAmount: string }>("/api/deposits/quote", {
+          method: "POST",
+          body: { asset: asset.code, network: network.code, amountCents },
+        }).then((quote) => {
+          if (requestNumber !== quoteRequest || !document.body.contains(depositQuote)) return;
+          activeQuote = quote;
+          depositQuote.innerHTML = `<strong>Send approximately ${escapeHtml(quote.cryptoAmount)} ${escapeHtml(asset.code)}</strong><span>Rate: 1 ${escapeHtml(asset.code)} = $${formatUsdRate(quote.priceUsd)} USD · Quote valid for 5 minutes. Wallet network fees may vary.</span>`;
+        }).catch((error: unknown) => {
+          if (requestNumber !== quoteRequest || !document.body.contains(depositQuote)) return;
+          depositQuote.classList.add("is-error");
+          depositQuote.textContent = `Live conversion unavailable: ${errorMessage(error)}. Please try again before submitting.`;
+        });
+      }, 350);
+    };
     const updateBonusEstimate = () => {
       if (!bonusEstimate || !firstDepositBonusEligible) return;
       const amountCents = amountToCents(depositAmountInput.value);
@@ -934,8 +1025,12 @@ async function showDepositFlow() {
         ? `Your gift: +${formatCurrency(Math.round(amountCents * 0.2))} USD`
         : "Enter your deposit amount to preview your gift.";
     };
-    depositAmountInput.addEventListener("input", updateBonusEstimate);
+    depositAmountInput.addEventListener("input", () => {
+      updateBonusEstimate();
+      updateDepositQuote();
+    });
     updateBonusEstimate();
+    updateDepositQuote();
     fileInput.addEventListener("change", async () => {
       const file = fileInput.files?.[0];
       uploadedReceipt = null;
@@ -973,6 +1068,11 @@ async function showDepositFlow() {
         showNotice("Minimum deposit is $10.00", "Enter a deposit amount of at least $10.00.");
         return;
       }
+      if (!activeQuote || activeQuote.amountCents !== amountCents || activeQuote.expiresAtMs <= Date.now()) {
+        updateDepositQuote();
+        showNotice("Refreshing your crypto quote", "Please wait for a current conversion before continuing.");
+        return;
+      }
       if (fileInput.files?.length && !uploadedReceipt) {
         showNotice("Receipt upload in progress", "Wait for the selected receipt to finish uploading before continuing.");
         return;
@@ -988,6 +1088,14 @@ async function showDepositFlow() {
       agree.addEventListener("change", () => { confirm.disabled = !agree.checked; });
       confirm.addEventListener("click", async () => {
         if (!agree.checked) return;
+        const quote = activeQuote;
+        if (!quote || quote.amountCents !== amountToCents(depositAmountInput.value) || quote.expiresAtMs <= Date.now()) {
+          confirm.disabled = false;
+          confirm.textContent = "Confirm payment";
+          updateDepositQuote();
+          showNotice("Refreshing your crypto quote", "The amount changed or the quote expired. Wait for a current conversion before confirming.");
+          return;
+        }
         confirm.disabled = true;
         confirm.textContent = "Submitting…";
         try {
@@ -998,6 +1106,7 @@ async function showDepositFlow() {
               network: network.code,
               amountCents,
               requestId,
+              quoteId: quote.quoteId,
               ...(uploadedReceipt ? { uploadRequestId: uploadedReceipt.requestId, publicId: uploadedReceipt.publicId } : {}),
             },
           });
@@ -1067,19 +1176,19 @@ function renderAuth(kind: "login" | "signup") {
     <main class="auth-page">
       <a class="auth-back" href="index.html">← <span>Back to dashboard</span></a>
       <section class="auth-card">
-        <a class="auth-brand" href="index.html"><img src="${logoUrl}" alt="Triplex"></a>
+        <a class="auth-brand" href="index.html"><img src="${logoUrl}" alt="TRIPLEAPEX"></a>
         <p class="eyebrow">${signup ? "Get started" : "Welcome back"}</p>
-        <h1>${signup ? "Create your account" : "Log in to Triplex"}</h1>
+        <h1>${signup ? "Create your account" : "Log in to TRIPLEAPEX"}</h1>
         <p class="auth-copy">${signup ? "Use your Google account to get started, then choose your username." : "Continue securely with your Google account."}</p>
         ${!isFirebaseConfigured ? '<div class="config-note"><strong>Setup needed</strong><span>Google sign-in will be available after Firebase is configured.</span></div>' : ""}
         <button class="google-button" id="google-auth" type="button" ${!isFirebaseConfigured ? "disabled" : ""}>
           <svg viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.3l7.8 6.1C12.2 13.7 17.6 9.5 24 9.5Z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.2-3.2-.5-4.7H24v9h12.4c-.6 3-2.3 5.5-4.8 7.2l7.4 5.7c4.3-4 7.1-9.9 7.1-17.2Z"/><path fill="#FBBC05" d="M10.4 28.6a14.5 14.5 0 0 1 0-9.2l-7.8-6.1a24 24 0 0 0 0 21.4l7.8-6.1Z"/><path fill="#34A853" d="M24 48c6.5 0 12-2.1 16-6.3l-7.4-5.7c-2.1 1.4-4.8 2.3-8.6 2.3-6.4 0-11.8-4.2-13.6-10l-7.8 6.1C6.5 42.6 14.6 48 24 48Z"/></svg>
           <span>Continue with Google</span>
         </button>
-        <p class="auth-switch">${signup ? 'Already have an account? <a href="login.html">Log in</a>' : 'New to Triplex? <a href="signup.html">Create an account</a>'}</p>
+        <p class="auth-switch">${signup ? 'Already have an account? <a href="login.html">Log in</a>' : 'New to TRIPLEAPEX? <a href="signup.html">Create an account</a>'}</p>
         <p class="auth-legal">Your account is protected by Google sign-in and Firebase authentication.</p>
       </section>
-      <span class="auth-footer">TRIPLEX · SECURE ACCOUNT ACCESS</span>
+      <span class="auth-footer">TRIPLEAPEX · SECURE ACCOUNT ACCESS</span>
     </main>`;
   document.querySelector<HTMLButtonElement>("#google-auth")?.addEventListener("click", async (event) => {
     const button = event.currentTarget as HTMLButtonElement;
@@ -1104,10 +1213,10 @@ function renderUsernameSetup(user: User) {
     <main class="auth-page">
       <a class="auth-back" href="index.html">← <span>Back to dashboard</span></a>
       <section class="auth-card username-card">
-        <a class="auth-brand" href="index.html"><img src="${logoUrl}" alt="Triplex"></a>
+        <a class="auth-brand" href="index.html"><img src="${logoUrl}" alt="TRIPLEAPEX"></a>
         <p class="eyebrow">One last step</p>
         <h1>Choose your username</h1>
-        <p class="auth-copy">Your username will identify you on Triplex. Use 3–20 letters, numbers, or underscores.</p>
+        <p class="auth-copy">Your username will identify you on TRIPLEAPEX. Use 3–20 letters, numbers, or underscores.</p>
         <form id="username-form" novalidate>
           <label for="username-input">Username</label>
           <div class="username-field"><span aria-hidden="true">@</span><input id="username-input" name="username" autocomplete="username" minlength="3" maxlength="20" placeholder="yourname" required><span id="username-status" class="username-status" aria-live="polite"></span></div>
@@ -1116,7 +1225,7 @@ function renderUsernameSetup(user: User) {
         </form>
         <button class="text-button" id="username-signout" type="button">Not you? Sign out</button>
       </section>
-      <span class="auth-footer">TRIPLEX · SECURE ACCOUNT ACCESS</span>
+      <span class="auth-footer">TRIPLEAPEX · SECURE ACCOUNT ACCESS</span>
     </main>`;
 
   const input = document.querySelector<HTMLInputElement>("#username-input")!;
@@ -1183,11 +1292,11 @@ function renderUsernameSetup(user: User) {
 function renderContact() {
   frame(`
     <p class="eyebrow">We’re here to help</p>
-    <h1>Contact Triplex</h1>
+    <h1>Contact TRIPLEAPEX</h1>
     <p class="intro">Get in touch with our team using the contact option below.</p>
     <section class="contact-card">
       <span class="contact-icon" aria-hidden="true">✆</span>
-      <div><p class="eyebrow">WhatsApp support</p><h2>Chat with our team</h2><p>Message Triplex at <strong>+44 7950 484434</strong>.</p></div>
+      <div><p class="eyebrow">WhatsApp support</p><h2>Chat with our team</h2><p>Message TRIPLEAPEX at <strong>+44 7950 484434</strong>.</p></div>
       <a class="button button-primary" href="${whatsappUrl}" target="_blank" rel="noopener noreferrer">Open WhatsApp <span aria-hidden="true">↗</span></a>
     </section>
     <p class="contact-note">Please do not share passwords, verification codes, or sensitive financial information in chat.</p>`, "contact", currentUsername);
@@ -1202,6 +1311,7 @@ function renderAdmin() {
       <a class="admin-shortcut" href="receipts.html"><span class="admin-shortcut-icon">▤</span><strong>Deposit receipts</strong><small>${pendingReceiptCount} awaiting review</small><span aria-hidden="true">→</span></a>
       <a class="admin-shortcut" href="withdrawals.html"><span class="admin-shortcut-icon">↓</span><strong>Withdrawals</strong><small>${pendingWithdrawalCount} awaiting review</small><span aria-hidden="true">→</span></a>
       <a class="admin-shortcut" href="members.html"><span class="admin-shortcut-icon">♙</span><strong>Members</strong><small>View member accounts</small><span aria-hidden="true">→</span></a>
+      <a class="admin-shortcut" href="referrals.html"><span class="admin-shortcut-icon">♧</span><strong>Referral agents</strong><small>Appoint agents and manage codes</small><span aria-hidden="true">→</span></a>
     </div>`, "admin", currentUsername);
 }
 
@@ -1215,6 +1325,8 @@ interface AdminReceipt {
   amountCents: number;
   asset: string;
   networkName: string;
+  expectedCryptoAmount?: string;
+  cryptoPriceUsd?: number;
   receipt: { publicId: string; format: string; bytes: number } | null;
   cloudinaryUrl: string | null;
   createdAt: { _seconds?: number; seconds?: number } | null;
@@ -1226,6 +1338,34 @@ interface AdminMember {
   email: string;
   role: "user" | "admin";
   isBanned: boolean;
+}
+
+interface ReferralMember {
+  uid: string;
+  username: string;
+  email: string;
+  role: "user" | "admin";
+  isBanned: boolean;
+  referralCode: string | null;
+  hasDeposited: boolean;
+  depositRewardCents: number;
+  totalCommissionCents: number;
+  completedCycles: number;
+}
+
+interface ReferralAccount {
+  agent: { code: string; assignedAtMs: number } | null;
+  referredBy: { username: string; code: string; referredAtMs: number } | null;
+  hasApprovedDeposit: boolean;
+  referrals: {
+    uid: string;
+    username: string;
+    referredAtMs: number;
+    hasDeposited: boolean;
+    depositRewardCents: number;
+    totalCommissionCents: number;
+    completedCycles: number;
+  }[];
 }
 
 interface AdminWithdrawal {
@@ -1241,6 +1381,103 @@ interface AdminWithdrawal {
   networkName: string;
   walletAddress: string;
   createdAt: { _seconds?: number; seconds?: number } | null;
+}
+
+function renderReferralsPage() {
+  if (!currentUser) {
+    frame(`<p class="eyebrow">TRIPLEAPEX referrals</p><h1>Referral programme</h1><p class="intro">Referral agents are appointed by the TRIPLEAPEX team.</p><section class="progress-empty-state"><div><h2>Sign in to manage referrals</h2><p>Log in to add a referral code or view your referral agent dashboard.</p></div><a class="button button-primary" href="login.html">Log in</a></section>`, "referrals", currentUsername);
+    return;
+  }
+  if (!currentUsername && currentRole !== "admin") {
+    frame(`<p class="eyebrow">TRIPLEAPEX referrals</p><h1>Referral programme</h1><p class="intro">Set up your account before adding a referral code.</p><section class="progress-empty-state"><div><h2>Choose your username first</h2><p>Your username is used to identify you and your referral agent.</p></div><a class="button button-primary" href="signup.html">Complete account setup</a></section>`, "referrals", currentUsername);
+    return;
+  }
+  frame(`<p class="eyebrow">TRIPLEAPEX referrals</p><h1>Referral programme</h1><p class="intro">View your referral status, add a code, or track rewards from your invited members.</p><div id="referral-content" class="referral-content"><div class="deposit-loading"><span class="loader-orbit"></span><p>Loading your referral dashboard…</p></div></div>`, "referrals", currentUsername);
+  if (currentRole === "admin") void refreshAdminReferrals();
+  else void refreshReferralAccount();
+}
+
+async function refreshReferralAccount() {
+  const root = document.querySelector<HTMLDivElement>("#referral-content");
+  if (!root || !currentUser) return;
+  try {
+    const data = await apiRequest<ReferralAccount>("/api/referrals/me");
+    if (!document.body.contains(root)) return;
+    const agentPanel = data.agent
+      ? `<section class="referral-agent-card"><span class="referral-success-mark" aria-hidden="true">✓</span><p class="eyebrow">Referral agent status</p><h2>Congratulations, @${escapeHtml(currentUsername || "agent")}!</h2><p>You are a TRIPLEAPEX FX referral agent. Share your unique code with people who have not yet made an approved deposit.</p><div class="referral-code-box"><div><span>YOUR REFERRAL CODE</span><strong id="referral-code-value">${escapeHtml(data.agent.code)}</strong></div><button class="button button-secondary" type="button" id="copy-referral-code">Copy code</button></div><div class="referral-reward-rules"><div><strong>+$100</strong><span>when a referred member's first deposit is approved</span></div><div><strong>+10%</strong><span>of their net cycle profit after fees when a five-day cycle completes</span></div></div></section>`
+      : "";
+    const referredPanel = data.referredBy
+      ? `<section class="referral-status-card"><span class="referral-status-icon" aria-hidden="true">✓</span><div><p class="eyebrow">Successfully referred</p><h2>@${escapeHtml(data.referredBy.username)}</h2><p>Your referral agent. This account can only be referred once.</p></div></section>`
+      : "";
+    const applyPanel = !data.agent && !data.referredBy
+      ? `<section class="referral-apply-card"><p class="eyebrow">Have a referral code?</p><h2>Connect with your referral agent</h2><p>Enter a code shared by an appointed TRIPLEAPEX referral agent. Codes can only be used once per account and before your first approved deposit.</p>${data.hasApprovedDeposit ? '<p class="referral-inline-message is-error">Referral codes must be added before your first approved deposit.</p>' : `<form class="referral-code-form" id="referral-code-form"><label for="referral-code-input">Referral agent code</label><div class="referral-code-entry"><input id="referral-code-input" name="code" maxlength="45" placeholder="T-R-I-P-L-E-A-P-E-X-A-G-E-N-T-0-0-1" autocomplete="off" required><button class="button button-primary" type="submit">Verify code</button></div><p class="referral-inline-message" id="referral-code-message" role="status" aria-live="polite"></p></form>`}</section>`
+      : "";
+    const members = data.agent
+      ? `<section class="referral-members-card"><div class="referral-section-heading"><div><p class="eyebrow">Your network</p><h2>Referred members</h2></div><span>${data.referrals.length} member${data.referrals.length === 1 ? "" : "s"}</span></div>${data.referrals.length ? `<div class="referral-member-list">${data.referrals.map((member) => `<article class="referral-member-row"><div class="member-avatar">${escapeHtml((member.username || "U").slice(0, 2).toUpperCase())}</div><div class="member-info"><strong>@${escapeHtml(member.username || "member")}</strong><span>Referred ${escapeHtml(new Date(member.referredAtMs).toLocaleDateString())}</span><small>${member.hasDeposited ? "First deposit approved" : "Awaiting first approved deposit"} · ${member.completedCycles} completed cycle${member.completedCycles === 1 ? "" : "s"}</small></div><div class="referral-member-rewards">${member.depositRewardCents ? `<strong>+${formatCurrency(member.depositRewardCents)}</strong><small>deposit reward</small>` : ""}${member.totalCommissionCents ? `<strong>+${formatCurrency(member.totalCommissionCents)}</strong><small>cycle rewards</small>` : ""}${!member.depositRewardCents && !member.totalCommissionCents ? `<span class="referral-pending">Pending</span>` : ""}</div></article>`).join("")}</div>` : '<div class="empty-state"><p>Share your code to see your referred members here.</p></div>'}</section>`
+      : "";
+    root.innerHTML = `${agentPanel}${referredPanel}${applyPanel}${members}<section class="referral-closure"><span aria-hidden="true">✦</span><p><strong>2026 referral agent applications are closed.</strong> This year’s batch has 86 agents. Applications are scheduled to reopen January 5, 2027.</p></section>`;
+    document.querySelector<HTMLButtonElement>("#copy-referral-code")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      try {
+        await navigator.clipboard.writeText(data.agent?.code || "");
+        button.textContent = "Copied";
+      } catch {
+        showNotice("Could not copy referral code", "Select and copy the code manually.");
+      }
+    });
+    document.querySelector<HTMLFormElement>("#referral-code-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const form = event.currentTarget as HTMLFormElement;
+      const input = form.elements.namedItem("code") as HTMLInputElement | null;
+      const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
+      const message = document.querySelector<HTMLElement>("#referral-code-message");
+      if (!input || !button || !message) return;
+      const code = input.value.trim().toUpperCase();
+      button.disabled = true;
+      button.textContent = "Checking…";
+      message.className = "referral-inline-message is-checking";
+      message.innerHTML = '<span class="referral-check-spinner" aria-hidden="true"></span> Verifying referral code…';
+      void apiRequest("/api/referrals/apply", { method: "POST", body: { code } }).then(() => {
+        message.className = "referral-inline-message is-success";
+        message.textContent = "Referral verified. Your referral agent has successfully referred you.";
+        window.setTimeout(() => void refreshReferralAccount(), 900);
+      }).catch((error: unknown) => {
+        message.className = "referral-inline-message is-error";
+        message.textContent = errorMessage(error);
+        button.disabled = false;
+        button.textContent = "Verify code";
+      });
+    });
+  } catch (error) {
+    if (document.body.contains(root)) root.innerHTML = `<p class="admin-error">${escapeHtml(errorMessage(error))}</p>`;
+  }
+}
+
+async function refreshAdminReferrals() {
+  const root = document.querySelector<HTMLDivElement>("#referral-content");
+  if (!root) return;
+  try {
+    const result = await apiRequest<{ members: ReferralMember[]; agentCount: number; capacity: number }>("/api/admin/referrals");
+    if (!document.body.contains(root)) return;
+    root.innerHTML = `<section class="referral-admin-summary"><div><p class="eyebrow">Admin controls</p><h2>Appoint referral agents</h2><p>Only administrators can create agent accounts and unique referral codes.</p></div><span>${result.agentCount} / ${result.capacity} assigned</span></section><section class="admin-list referral-admin-list"><div class="admin-list-content">${result.members.length ? result.members.map((member) => `<article class="member-card"><div class="member-avatar">${escapeHtml((member.username || member.email || "U").slice(0, 2).toUpperCase())}</div><div class="member-info"><strong>${member.username ? `@${escapeHtml(member.username)}` : "Username not set"}</strong><span>${escapeHtml(member.email)}</span><small>${member.isBanned ? "Banned" : member.role === "admin" ? "Administrator" : member.referralCode ? `Referral agent · ${escapeHtml(member.referralCode)}` : "Not a referral agent"}</small></div>${member.referralCode ? '<span class="member-role">AGENT</span>' : member.role === "admin" || member.isBanned || !member.username ? '<span class="referral-pending">Unavailable</span>' : `<button class="button button-primary" type="button" data-make-referral-agent="${escapeHtml(member.uid)}">Make referral agent!</button>`}</article>`).join("") : '<div class="empty-state"><p>No members found.</p></div>'}</div></section>`;
+    root.querySelectorAll<HTMLButtonElement>("[data-make-referral-agent]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        if (button.disabled) return;
+        button.disabled = true;
+        button.textContent = "Creating code…";
+        try {
+          await apiRequest(`/api/admin/referrals/${encodeURIComponent(button.dataset.makeReferralAgent || "")}/assign`, { method: "POST" });
+          await refreshAdminReferrals();
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = "Make referral agent!";
+          showNotice("Could not appoint referral agent", errorMessage(error));
+        }
+      });
+    });
+  } catch (error) {
+    if (document.body.contains(root)) root.innerHTML = `<p class="admin-error">${escapeHtml(errorMessage(error))}</p>`;
+  }
 }
 
 function renderReceiptsPage() {
@@ -1266,7 +1503,7 @@ async function refreshAdminReceipts() {
     list.innerHTML = result.receipts.map((receipt) => `
       <article class="receipt-card">
         <div class="receipt-card-heading"><div><p class="eyebrow">${escapeHtml(receipt.asset)} · ${escapeHtml(receipt.networkName)}</p><h2>@${escapeHtml(receipt.username || "member")}</h2><p>${escapeHtml(receipt.email)}</p></div><strong class="receipt-amount">${formatCurrency(receipt.amountCents)}</strong></div>
-        <div class="receipt-meta"><span>Submitted ${escapeHtml(formatTimestamp(receipt.createdAt))}</span><span>${receipt.receipt ? "Receipt attached" : "No receipt attached"}</span></div>
+        <div class="receipt-meta"><span>Submitted ${escapeHtml(formatTimestamp(receipt.createdAt))}</span><span>${receipt.expectedCryptoAmount ? `Quoted ${escapeHtml(receipt.expectedCryptoAmount)} ${escapeHtml(receipt.asset)} at $${formatUsdRate(Number(receipt.cryptoPriceUsd))} USD` : "Crypto quote not recorded"}</span><span>${receipt.receipt ? "Receipt attached" : "No receipt attached"}</span></div>
         <div class="receipt-actions">
           ${receipt.receipt ? `<button class="button button-secondary" type="button" data-view-receipt="${escapeHtml(receipt.id)}" data-uid="${escapeHtml(receipt.uid)}">View receipt</button>` : ""}
           <button class="button button-approve" type="button" data-approve-receipt="${escapeHtml(receipt.id)}" data-uid="${escapeHtml(receipt.uid)}" data-amount-cents="${receipt.amountCents}">Approve</button>
@@ -1540,7 +1777,7 @@ function renderBannedScreen() {
         <span class="banned-mark" aria-hidden="true">!</span>
         <p class="eyebrow">Account access restricted</p>
         <h1>ACCOUNT PERMANENTLY BANNED</h1>
-        <p>Your account may have been involved in a fake payment receipt or another violation of Triplex rules. If you believe this decision was made in error, contact customer support.</p>
+        <p>Your account may have been involved in a fake payment receipt or another violation of TRIPLEAPEX rules. If you believe this decision was made in error, contact customer support.</p>
         <a class="button button-banned-support" href="${whatsappUrl}" target="_blank" rel="noopener noreferrer">Contact support</a>
         <button class="button button-secondary" id="banned-signout" type="button">Sign out</button>
       </div>
@@ -1565,7 +1802,7 @@ function showNotice(title: string, message: string) {
   overlay.innerHTML = `
     <section class="notice-card" role="dialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-message">
       <button class="notice-close" type="button" aria-label="Dismiss notification">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="Triplex">
+      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
       <span class="notice-mark" aria-hidden="true">i</span>
       <h2 id="notice-title"></h2>
       <p id="notice-message"></p>
@@ -1593,9 +1830,9 @@ function showTransferCard() {
   overlay.innerHTML = `
     <section class="notice-card transfer-card" role="dialog" aria-modal="true" aria-labelledby="transfer-title">
       <button class="notice-close" type="button" aria-label="Dismiss transfer panel">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="Triplex">
+      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
       <p class="eyebrow">Transfer</p>
-      <h2 id="transfer-title">Send to a Triplex user</h2>
+      <h2 id="transfer-title">Send to a TRIPLEAPEX user</h2>
       <p class="transfer-explainer">The amount will be transferred to the selected user. Recheck the username carefully before continuing.</p>
       ${currentUser ? "" : '<p class="config-note"><strong>Sign in required</strong><span>Log in to check a recipient.</span></p>'}
       <form id="transfer-form">
@@ -1700,10 +1937,10 @@ function showProfitStartFlow() {
   overlay.innerHTML = `
     <section class="notice-card transfer-card" role="dialog" aria-modal="true" aria-labelledby="profit-start-title">
       <button class="notice-close" type="button" aria-label="Dismiss cycle form">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="Triplex">
+      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
       <p class="eyebrow">Five-day profit cycle</p>
       <h2 id="profit-start-title">Choose an amount to grow</h2>
-      <p class="transfer-explainer">The selected amount is reserved for five days. Earnings are credited hourly; the 1% fee is deducted at the end of each day from the amount after growth. Withdrawals and transfers are paused until the cycle completes.</p>
+      <p class="transfer-explainer">The selected amount is reserved for five days. Earnings use 19.5% daily growth and are credited hourly; a 4% fee is deducted from the post-growth amount each day. Withdrawals and transfers are paused until the cycle completes.</p>
       <p class="withdrawal-balance">Available balance: <strong>${formatCurrency(balanceCents)} USD</strong></p>
       <form id="profit-start-form">
         <label for="profit-start-amount">Cycle starting amount (USD)</label>
@@ -1783,7 +2020,7 @@ async function showWithdrawalFlow() {
   overlay.innerHTML = `
     <section class="notice-card transfer-card withdrawal-card" role="dialog" aria-modal="true" aria-labelledby="withdrawal-title">
       <button class="notice-close" type="button" aria-label="Dismiss withdrawal panel">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="Triplex">
+      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
       <p class="eyebrow">Withdrawal request</p>
       <h2 id="withdrawal-title">Withdraw to your crypto wallet</h2>
       <p class="transfer-explainer">Minimum withdrawal: $20.00 USD. Your request is in USD; an admin will determine and record the crypto amount sent. The requested USD amount is reserved while your payment is reviewed and manually processed.</p>
@@ -1876,6 +2113,13 @@ function formatCurrency(cents: number) {
   }).format(cents / 100)}`;
 }
 
+function formatUsdRate(amount: number) {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 8,
+  }).format(amount);
+}
+
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
@@ -1943,11 +2187,11 @@ function startLiveSubscriptions(user: User) {
       if (countChanged && page === "withdrawals") void refreshAdminWithdrawals();
     }, (error) => showNotice("Could not sync withdrawal requests", error.message));
   }
-  if (page === "dashboard") {
+  if (page === "dashboard" || page === "activity") {
     stopActivityWatch = subscribeAccountActivity(user.uid, (items) => {
       accountActivity = items;
       renderActivity();
-    }, (error) => showNotice("Could not load account activity", error.message));
+    }, (error) => showNotice("Could not load account activity", error.message), page === "activity");
   }
   stopProfitCycleWatch = subscribeProfitCycle(user.uid, (cycle) => {
     if (currentProfitCycle?.id === cycle?.id
@@ -2015,6 +2259,10 @@ async function loadAuthenticatedPage(user: User | null) {
       renderContact();
     } else if (page === "profit") {
       renderProfitPage();
+    } else if (page === "activity") {
+      renderActivityPage();
+    } else if (page === "referrals") {
+      renderReferralsPage();
     } else if (page === "assistant") {
       renderAssistantPage();
     } else if (page === "admin") {
@@ -2037,16 +2285,16 @@ async function loadAuthenticatedPage(user: User | null) {
 function renderLoadingPage(user: User | null) {
   appRoot.innerHTML = `
     <main class="boot-screen loading-page" aria-live="polite">
-      <img src="${logoUrl}" alt="Triplex" class="boot-logo">
+      <img src="${logoUrl}" alt="TRIPLEAPEX" class="boot-logo">
       <span class="loader-orbit" aria-hidden="true"></span>
-      <p>${user ? "Preparing your account" : "Triplex is loading"}</p>
+      <p>${user ? "Preparing your account" : "TRIPLEAPEX is loading"}</p>
       <span class="boot-caption">SECURE ACCOUNT ACCESS</span>
       <span class="loading-dots" aria-hidden="true"><i></i><i></i><i></i></span>
       <a class="loading-back" href="index.html">Return to dashboard</a>
     </main>`;
 }
 
-showBoot(page === "loading" ? "Triplex is loading" : "Checking your secure connection");
+showBoot(page === "loading" ? "TRIPLEAPEX is loading" : "Checking your secure connection");
 renderInstallPrompt();
 if (page === "loading") renderLoadingPage(null);
 watchAuth(
@@ -2067,10 +2315,10 @@ function renderInstallPrompt() {
   const prompt = document.createElement("aside");
   prompt.id = "install-prompt";
   prompt.className = "install-prompt";
-  prompt.setAttribute("aria-label", "Install Triplex");
+  prompt.setAttribute("aria-label", "Install TRIPLEAPEX");
   prompt.innerHTML = `
     <img src="${logoUrl}" alt="" class="install-prompt-logo">
-    <div class="install-prompt-copy"><strong>Install Triplex</strong><span>Keep your account one tap away.</span></div>
+    <div class="install-prompt-copy"><strong>Install TRIPLEAPEX</strong><span>Keep your account one tap away.</span></div>
     <button class="button button-primary install-button" id="install-app" type="button">Install</button>
     <button class="install-dismiss" id="dismiss-install" type="button" aria-label="Dismiss install prompt">×</button>`;
   document.body.append(prompt);
@@ -2083,7 +2331,7 @@ function renderInstallPrompt() {
     if (!deferredInstallPrompt) {
       const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
       showNotice(
-        "Install Triplex",
+        "Install TRIPLEAPEX",
         isIos
           ? "Tap the Share button in Safari, then choose Add to Home Screen."
           : "Open your browser menu and choose Install app or Add to Home screen.",

@@ -82,6 +82,26 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /referralAgents/{uid} {
+      allow read, write: if false;
+    }
+
+    match /referralCodes/{code} {
+      allow read, write: if false;
+    }
+
+    match /referrals/{uid} {
+      allow read, write: if false;
+    }
+
+    match /referralRewards/{rewardId} {
+      allow read, write: if false;
+    }
+
+    match /depositQuotes/{quoteId} {
+      allow read, write: if false;
+    }
+
     match /transfers/{transferId} {
       allow read, write: if false;
     }

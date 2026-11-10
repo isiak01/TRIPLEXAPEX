@@ -7,7 +7,7 @@ export default defineConfig({
     },
   },
   preview: {
-    allowedHosts: ["triplex-fx.onrender.com"],
+    allowedHosts: ["tripleapex.onrender.com"],
   },
   build: {
     rollupOptions: {
@@ -20,6 +20,8 @@ export default defineConfig({
         admin: "admin.html",
         profit: "profit.html",
         assistant: "assistant.html",
+        activity: "activity.html",
+        referrals: "referrals.html",
         receipts: "receipts.html",
         withdrawals: "withdrawals.html",
         members: "members.html",

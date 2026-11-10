@@ -85,6 +85,17 @@ const depositAssets = [
   { code: "TRX", name: "TRON", symbol: "T", networks: [{ code: "TRON", name: "Tron (TRC20)" }] },
   { code: "SUI", name: "Sui", symbol: "S", networks: [{ code: "SUI", name: "Sui" }] },
 ];
+const coinGeckoIds = {
+  BTC: "bitcoin",
+  ETH: "ethereum",
+  BNB: "binancecoin",
+  SOL: "solana",
+  GRAM: "gram",
+  TRX: "tron",
+  SUI: "sui",
+};
+const referralAgentLimit2026 = 86;
+let cryptoPriceCache = { fetchedAtMs: 0, prices: {} };
 
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const cloudApiKey = process.env.CLOUDINARY_API_KEY;
@@ -276,6 +287,47 @@ function getNetwork(asset, network) {
   return coin?.networks.find((item) => item.code === network) || null;
 }
 
+function referralAgentCode(serial) {
+  const digits = String(serial).padStart(3, "0").split("").join("-");
+  return `T-R-I-P-L-E-A-P-E-X-A-G-E-N-T-${digits}`;
+}
+
+async function getCryptoPrices() {
+  if (Date.now() - cryptoPriceCache.fetchedAtMs < 30_000
+    && Object.keys(coinGeckoIds).every((asset) => Number.isFinite(cryptoPriceCache.prices[asset]))) {
+    return cryptoPriceCache.prices;
+  }
+  const ids = [...new Set(Object.values(coinGeckoIds))].join(",");
+  let response;
+  try {
+    response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids)}&vs_currencies=usd`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch (error) {
+    console.error("Could not retrieve live cryptocurrency prices.", error);
+    fail(503, "Live cryptocurrency prices are temporarily unavailable. Please try again shortly.");
+  }
+  if (!response.ok) {
+    console.error(`Cryptocurrency price service returned HTTP ${response.status}.`);
+    fail(503, "Live cryptocurrency prices are temporarily unavailable. Please try again shortly.");
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    console.error("Cryptocurrency price service returned invalid JSON.", error);
+    fail(503, "Live cryptocurrency prices could not be verified. Please try again shortly.");
+  }
+  const prices = Object.fromEntries(Object.entries(coinGeckoIds).map(([asset, id]) => [asset, payload?.[id]?.usd]));
+  if (Object.values(prices).some((price) => typeof price !== "number" || !Number.isFinite(price) || price <= 0)) {
+    console.error("Cryptocurrency price service did not return every supported deposit asset.");
+    fail(503, "A live price is unavailable for this cryptocurrency. Please try again shortly.");
+  }
+  cryptoPriceCache = { fetchedAtMs: Date.now(), prices };
+  return prices;
+}
+
 function cloudinaryReady() {
   if (!cloudinaryConfigured) fail(503, "Receipt uploads are temporarily unavailable.");
   if (!uploadPreset) fail(503, "Receipt uploads are not configured yet.");
@@ -390,11 +442,14 @@ async function migrateLegacyReceipts() {
   }
 }
 
-function profitDay(openingCents) {
-  const profitCents = Math.round(openingCents * 0.053);
-  const postGrowthCents = openingCents + profitCents;
-  const feeCents = Math.round(postGrowthCents * 0.01);
-  return { profitCents, feeCents, netCents: postGrowthCents - feeCents };
+function profitDay(openingUsd, growthRate, feeRate) {
+  const postGrowthUsd = openingUsd * (1 + growthRate);
+  return {
+    growthUsd: openingUsd * growthRate,
+    postGrowthUsd,
+    feeUsd: postGrowthUsd * feeRate,
+    netUsd: postGrowthUsd * (1 - feeRate),
+  };
 }
 
 async function processProfitCycle(cycleRef) {
@@ -408,7 +463,7 @@ async function processProfitCycle(cycleRef) {
       || !Number.isSafeInteger(cycle.lastAccruedAtMs)
       || !Number.isSafeInteger(cycle.dayNumber)
       || !Number.isSafeInteger(cycle.hourInDay)
-      || !Number.isSafeInteger(cycle.dailyOpeningCents)
+      || (!Number.isFinite(cycle.dailyOpeningUsd) && !Number.isSafeInteger(cycle.dailyOpeningCents))
     ) {
       throw new Error(`Profit cycle ${cycleRef.id} has invalid state.`);
     }
@@ -418,28 +473,58 @@ async function processProfitCycle(cycleRef) {
     );
     if (elapsedHours <= 0) return;
     const profileRef = userRef(cycle.uid);
-    const profileSnapshot = await transaction.get(profileRef);
+    const referralRef = db.collection("referrals").doc(cycle.uid);
+    const referralRewardRef = db.collection("referralRewards").doc(`cycle_${cycleRef.id}`);
+    const [profileSnapshot, referralSnapshot, referralRewardSnapshot] = await Promise.all([
+      transaction.get(profileRef),
+      transaction.get(referralRef),
+      transaction.get(referralRewardRef),
+    ]);
     if (!profileSnapshot.exists) throw new Error(`Profit cycle ${cycleRef.id} has no member profile.`);
     const profile = profileSnapshot.data();
+    const referral = referralSnapshot.data();
+    const agentUid = referralSnapshot.exists && typeof referral?.agentUid === "string" ? referral.agentUid : null;
+    const agentRef = agentUid ? userRef(agentUid) : null;
+    const agentSnapshot = agentRef ? await transaction.get(agentRef) : null;
+    if (referralSnapshot.exists && (!agentUid || agentUid === cycle.uid || !agentSnapshot?.exists)) {
+      throw new Error(`Profit cycle ${cycleRef.id} has an invalid referral agent record.`);
+    }
     let balanceCents = Number.isSafeInteger(profile.balanceCents) && profile.balanceCents >= 0
       ? profile.balanceCents
       : 0;
+    let agentBalanceCents = 0;
+    if (agentSnapshot) {
+      const currentAgentBalance = agentSnapshot.data()?.balanceCents;
+      if (!Number.isSafeInteger(currentAgentBalance) || currentAgentBalance < 0) {
+        throw new Error(`Referral agent ${agentUid} has an invalid balance.`);
+      }
+      agentBalanceCents = currentAgentBalance;
+    }
     let lastAccruedAtMs = cycle.lastAccruedAtMs;
     let dayNumber = cycle.dayNumber;
     let hourInDay = cycle.hourInDay;
-    let dailyOpeningCents = cycle.dailyOpeningCents;
-    let dailyEarnedCents = cycle.dailyEarnedCents || 0;
-    let currentAmountCents = cycle.currentAmountCents;
-    let totalProfitCents = cycle.totalProfitCents || 0;
-    let totalFeeCents = cycle.totalFeeCents || 0;
+    let dailyOpeningUsd = Number.isFinite(cycle.dailyOpeningUsd)
+      ? cycle.dailyOpeningUsd
+      : cycle.dailyOpeningCents / 100;
+    let dailyEarnedCents = Number.isSafeInteger(cycle.dailyEarnedCents) ? cycle.dailyEarnedCents : 0;
+    let currentAmountUsd = Number.isFinite(cycle.currentAmountUsd)
+      ? cycle.currentAmountUsd
+      : (Number.isSafeInteger(cycle.currentAmountCents) ? cycle.currentAmountCents : cycle.dailyOpeningCents) / 100;
+    let totalProfitCents = Number.isSafeInteger(cycle.totalProfitCents) ? cycle.totalProfitCents : 0;
+    let totalFeeCents = Number.isSafeInteger(cycle.totalFeeCents) ? cycle.totalFeeCents : 0;
+    const growthRate = Number.isFinite(cycle.dailyGrowthRate) ? cycle.dailyGrowthRate : 0.053;
+    const feeRate = Number.isFinite(cycle.dailyFeeRate) ? cycle.dailyFeeRate : 0.01;
+    if (growthRate <= 0 || growthRate >= 1 || feeRate < 0 || feeRate >= 1) {
+      throw new Error(`Profit cycle ${cycleRef.id} has invalid rates.`);
+    }
     let status = "active";
     let completed = false;
 
     for (let step = 0; step < elapsedHours && status === "active"; step += 1) {
       hourInDay += 1;
-      const { profitCents } = profitDay(dailyOpeningCents);
-      const earningsTarget = Math.round((profitCents * hourInDay) / 24);
-      const hourlyEarnings = earningsTarget - dailyEarnedCents;
+      const { growthUsd, feeUsd, netUsd } = profitDay(dailyOpeningUsd, growthRate, feeRate);
+      const earningsTargetCents = Math.round((growthUsd * hourInDay / 24) * 100);
+      const hourlyEarnings = earningsTargetCents - dailyEarnedCents;
       if (hourlyEarnings > 0) {
         balanceCents += hourlyEarnings;
         totalProfitCents += hourlyEarnings;
@@ -455,7 +540,7 @@ async function processProfitCycle(cycleRef) {
         });
       }
       if (hourInDay === 24) {
-        const { feeCents, netCents } = profitDay(dailyOpeningCents);
+        const feeCents = Math.round(feeUsd * 100);
         if (feeCents > 0) {
           balanceCents -= feeCents;
           totalFeeCents += feeCents;
@@ -469,7 +554,7 @@ async function processProfitCycle(cycleRef) {
             createdAt: FieldValue.serverTimestamp(),
           });
         }
-        currentAmountCents = netCents;
+        currentAmountUsd = netUsd;
         if (dayNumber === 5) {
           const principalCents = cycle.principalCents;
           if (!Number.isSafeInteger(principalCents) || principalCents <= 0) {
@@ -481,7 +566,7 @@ async function processProfitCycle(cycleRef) {
           completed = true;
           transaction.create(notificationRef(cycle.uid), {
             title: "Five-day cycle completed",
-            message: "Your five-day profit cycle is complete. Your reserved starting amount has returned to your available USD balance, and withdrawals are now available.",
+            message: "Your five-day cycle is complete. Your starting amount has returned to your available USD balance, and withdrawals are now available.",
             kind: "profit",
             metadata: { cycleId: cycleRef.id, status },
             readAt: null,
@@ -495,7 +580,7 @@ async function processProfitCycle(cycleRef) {
         } else {
           dayNumber += 1;
           hourInDay = 0;
-          dailyOpeningCents = netCents;
+          dailyOpeningUsd = netUsd;
           dailyEarnedCents = 0;
         }
       }
@@ -507,16 +592,59 @@ async function processProfitCycle(cycleRef) {
         throw new Error(`Profit cycle ${cycleRef.id} produced an invalid member balance.`);
       }
       transaction.update(profileRef, { balanceCents, updatedAt: FieldValue.serverTimestamp() });
+    } else if (agentRef && agentSnapshot?.exists && !referralRewardSnapshot.exists && agentUid !== cycle.uid) {
+      const netCycleProfitCents = Math.max(0, totalProfitCents - totalFeeCents);
+      const commissionCents = Math.round(netCycleProfitCents * 0.1);
+      if (commissionCents > 0) {
+        agentBalanceCents += commissionCents;
+        if (!Number.isSafeInteger(agentBalanceCents)) throw new Error(`Referral agent ${agentUid} exceeded the supported balance.`);
+        transaction.update(agentRef, { balanceCents: agentBalanceCents, updatedAt: FieldValue.serverTimestamp() });
+        transaction.update(referralRef, {
+          completedCycles: (Number.isSafeInteger(referral.completedCycles) ? referral.completedCycles : 0) + 1,
+          totalCommissionCents: (Number.isSafeInteger(referral.totalCommissionCents) ? referral.totalCommissionCents : 0) + commissionCents,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        transaction.create(referralRewardRef, {
+          kind: "cycle",
+          uid: cycle.uid,
+          agentUid,
+          cycleId: cycleRef.id,
+          amountCents: commissionCents,
+          netCycleProfitCents,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        transaction.create(agentRef.collection("profitActivity").doc(`referral_cycle_${cycleRef.id}`), {
+          uid: agentUid,
+          type: "referral",
+          amountCents: commissionCents,
+          detail: `10% net cycle reward · @${profile.username || "member"}`,
+          referredUid: cycle.uid,
+          cycleId: cycleRef.id,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        transaction.create(notificationRef(agentUid), {
+          title: "Referral cycle reward credited",
+          message: `A 10% net-profit reward of $${(commissionCents / 100).toFixed(2)} USD for @${profile.username || "your referred member"} was added to your balance.`,
+          kind: "referral",
+          metadata: { uid: cycle.uid, cycleId: cycleRef.id, amountCents: commissionCents },
+          readAt: null,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
     }
     transaction.update(cycleRef, {
       status,
-      currentAmountCents,
+      currentAmountCents: Math.round(currentAmountUsd * 100),
+      currentAmountUsd,
       totalProfitCents,
       totalFeeCents,
       dayNumber,
       hourInDay,
-      dailyOpeningCents,
+      dailyOpeningCents: Math.round(dailyOpeningUsd * 100),
+      dailyOpeningUsd,
       dailyEarnedCents,
+      dailyGrowthRate: growthRate,
+      dailyFeeRate: feeRate,
       lastAccruedAtMs,
       completedAt: completed ? FieldValue.serverTimestamp() : null,
       updatedAt: FieldValue.serverTimestamp(),
@@ -564,6 +692,35 @@ async function routeApi(request, response, url, corsHeaders) {
       })),
     });
   }
+  if (method === "POST" && pathname === "/api/deposits/quote") {
+    const { identity } = await authenticate(request);
+    checkRateLimit(`deposit-quote:${identity.uid}`, 30, 60 * 60 * 1000);
+    const body = await readJson(request);
+    const asset = typeof body.asset === "string" ? body.asset.toUpperCase() : "";
+    const network = typeof body.network === "string" ? body.network.toUpperCase() : "";
+    if (!getNetwork(asset, network) || !getWallet(asset, network)) fail(400, "Select a configured deposit network before requesting a quote.");
+    if (!validateAmount(body.amountCents) || body.amountCents < 1_000) fail(400, "Enter a deposit amount of at least $10.00.");
+    const priceUsd = asset === "USDT" || asset === "USDC" ? 1 : (await getCryptoPrices())[asset];
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0) fail(503, "A live price is unavailable for this cryptocurrency.");
+    const decimalPlaces = asset === "USDT" || asset === "USDC" ? 2 : 8;
+    const cryptoAmount = ((body.amountCents / 100) / priceUsd).toFixed(decimalPlaces);
+    const quoteId = randomUUID();
+    const quotedAtMs = Date.now();
+    const expiresAtMs = quotedAtMs + 5 * 60 * 1000;
+    await db.collection("depositQuotes").doc(quoteId).create({
+      uid: identity.uid,
+      asset,
+      network,
+      amountCents: body.amountCents,
+      priceUsd,
+      cryptoAmount,
+      quotedAtMs,
+      expiresAtMs,
+      usedAt: null,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return send(200, { quoteId, asset, amountCents: body.amountCents, priceUsd, cryptoAmount, quotedAtMs, expiresAtMs });
+  }
   if (method === "GET" && pathname === "/api/withdrawals/options") {
     return send(200, {
       assets: depositAssets.map((asset) => ({
@@ -571,6 +728,199 @@ async function routeApi(request, response, url, corsHeaders) {
         networks: asset.networks.map((network) => ({ ...network, available: true })),
       })),
     });
+  }
+  if (method === "GET" && pathname === "/api/referrals/me") {
+    const { identity } = await authenticate(request);
+    const agentRef = db.collection("referralAgents").doc(identity.uid);
+    const referredRef = db.collection("referrals").doc(identity.uid);
+    const [agentSnapshot, referredSnapshot, approvedDeposit] = await Promise.all([
+      agentRef.get(),
+      referredRef.get(),
+      hasApprovedDeposit(identity.uid),
+    ]);
+    let referredBy = null;
+    if (referredSnapshot.exists) {
+      const referred = referredSnapshot.data();
+      const referrer = await userRef(referred.agentUid).get();
+      referredBy = {
+        username: referrer.data()?.username || referred.agentUsername || "TRIPLEAPEX agent",
+        code: referred.code,
+        referredAtMs: referred.referredAtMs,
+      };
+    }
+    let referrals = [];
+    if (agentSnapshot.exists) {
+      const referredMembers = await db.collection("referrals").where("agentUid", "==", identity.uid).get();
+      referrals = referredMembers.docs.map((snapshot) => {
+        const member = snapshot.data();
+        return {
+          uid: snapshot.id,
+          username: member.username || "member",
+          referredAtMs: member.referredAtMs,
+          hasDeposited: member.firstDepositRewardPaid === true,
+          depositRewardCents: Number.isSafeInteger(member.depositRewardCents) ? member.depositRewardCents : 0,
+          totalCommissionCents: Number.isSafeInteger(member.totalCommissionCents) ? member.totalCommissionCents : 0,
+          completedCycles: Number.isSafeInteger(member.completedCycles) ? member.completedCycles : 0,
+        };
+      }).sort((left, right) => right.referredAtMs - left.referredAtMs);
+    }
+    const agent = agentSnapshot.exists
+      ? { code: agentSnapshot.data().code, assignedAtMs: agentSnapshot.data().assignedAtMs }
+      : null;
+    return send(200, { agent, referredBy, hasApprovedDeposit: approvedDeposit, referrals });
+  }
+  if (method === "POST" && pathname === "/api/referrals/apply") {
+    const { identity } = await authenticate(request);
+    checkRateLimit(`referral-apply:${identity.uid}`, 5, 60 * 60 * 1000);
+    const body = await readJson(request);
+    const code = typeof body.code === "string" ? body.code.trim().toUpperCase() : "";
+    if (!/^T-R-I-P-L-E-(?:A-P-E-X|X)-A-G-E-N-T-\d-\d-\d$/.test(code)) fail(400, "That referral code is not valid. Check it and try again.");
+    const profileRef = userRef(identity.uid);
+    const referralRef = db.collection("referrals").doc(identity.uid);
+    const codeRef = db.collection("referralCodes").doc(code);
+    let agentUsername = "";
+    await db.runTransaction(async (transaction) => {
+      const [profileSnapshot, referralSnapshot, codeSnapshot, depositsSnapshot, legacyDepositsSnapshot] = await Promise.all([
+        transaction.get(profileRef),
+        transaction.get(referralRef),
+        transaction.get(codeRef),
+        transaction.get(db.collection("receipts").where("uid", "==", identity.uid)),
+        transaction.get(profileRef.collection("receipts").where("status", "==", "approved")),
+      ]);
+      if (!profileSnapshot.exists || profileSnapshot.data()?.isBanned === true) fail(403, "This account cannot be referred.");
+      if (!validateUsername(profileSnapshot.data()?.username)) fail(409, "Choose a username before applying a referral code.");
+      if (referralSnapshot.exists) fail(409, "This account has already been referred. Referral codes can only be used once.");
+      if (!codeSnapshot.exists) fail(404, "That referral code is incorrect. Check the code and try again.");
+      const agentUid = codeSnapshot.data()?.uid;
+      if (typeof agentUid !== "string" || agentUid === identity.uid) fail(400, "You cannot use your own referral code.");
+      const [agentProfileSnapshot, agentRecordSnapshot] = await Promise.all([
+        transaction.get(userRef(agentUid)),
+        transaction.get(db.collection("referralAgents").doc(agentUid)),
+      ]);
+      if (!agentProfileSnapshot.exists || agentProfileSnapshot.data()?.isBanned === true || !agentRecordSnapshot.exists) {
+        fail(404, "That referral code is no longer available.");
+      }
+      if (!validateUsername(agentProfileSnapshot.data()?.username)) fail(404, "That referral code is no longer available.");
+      const hasDeposit = depositsSnapshot.docs.some((item) => item.data().status === "approved")
+        || !legacyDepositsSnapshot.empty
+        || profileSnapshot.data()?.firstDepositBonusClaimed === true;
+      if (hasDeposit) fail(409, "A referral code must be added before your first approved deposit.");
+      agentUsername = agentProfileSnapshot.data()?.username || codeSnapshot.data()?.username || "TRIPLEAPEX agent";
+      const now = Date.now();
+      transaction.create(referralRef, {
+        uid: identity.uid,
+        username: profileSnapshot.data()?.username || "",
+        agentUid,
+        agentUsername,
+        code,
+        referredAtMs: now,
+        firstDepositRewardPaid: false,
+        depositRewardCents: 0,
+        totalCommissionCents: 0,
+        completedCycles: 0,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.update(profileRef, {
+        referredByUid: agentUid,
+        referredByCode: code,
+        referredAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(notificationRef(identity.uid), {
+        title: "Referral confirmed",
+        message: `@${agentUsername} has successfully referred you. Your account is linked to this referral agent.`,
+        kind: "referral",
+        metadata: { agentUid, code },
+        readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return send(200, { code, agentUsername });
+  }
+  if (method === "GET" && pathname === "/api/admin/referrals") {
+    await authenticate(request, { adminOnly: true });
+    const [membersSnapshot, agentsSnapshot, counterSnapshot] = await Promise.all([
+      db.collection("users").orderBy("createdAt", "desc").limit(500).get(),
+      db.collection("referralAgents").get(),
+      db.collection("referralProgram").doc("agents").get(),
+    ]);
+    const agentCodes = new Map(agentsSnapshot.docs.map((agent) => [agent.id, agent.data().code]));
+    const members = membersSnapshot.docs.map((snapshot) => ({
+      uid: snapshot.id,
+      username: snapshot.data().username || "",
+      email: snapshot.data().email || "",
+      role: snapshot.data().role === "admin" ? "admin" : "user",
+      isBanned: snapshot.data().isBanned === true,
+      referralCode: agentCodes.get(snapshot.id) || null,
+      hasDeposited: false,
+      depositRewardCents: 0,
+      totalCommissionCents: 0,
+      completedCycles: 0,
+    }));
+    return send(200, {
+      members,
+      agentCount: Number.isSafeInteger(counterSnapshot.data()?.total) ? counterSnapshot.data().total : agentsSnapshot.size,
+      capacity: referralAgentLimit2026,
+    });
+  }
+  const assignReferralMatch = pathname.match(/^\/api\/admin\/referrals\/([^/]+)\/assign$/);
+  if (method === "POST" && assignReferralMatch) {
+    const { identity } = await authenticate(request, { adminOnly: true });
+    const uid = assignReferralMatch[1];
+    if (uid === identity.uid) fail(400, "Administrator accounts cannot be referral agents.");
+    const memberRef = userRef(uid);
+    const agentRef = db.collection("referralAgents").doc(uid);
+    const counterRef = db.collection("referralProgram").doc("agents");
+    const codeCollection = db.collection("referralCodes");
+    const notification = notificationRef(uid);
+    let code = "";
+    await db.runTransaction(async (transaction) => {
+      const [memberSnapshot, agentSnapshot, counterSnapshot] = await Promise.all([
+        transaction.get(memberRef),
+        transaction.get(agentRef),
+        transaction.get(counterRef),
+      ]);
+      if (!memberSnapshot.exists) fail(404, "Member not found.");
+      if (memberSnapshot.data()?.role === "admin" || memberSnapshot.data()?.isBanned === true) {
+        fail(403, "This member cannot be appointed as a referral agent.");
+      }
+      if (!validateUsername(memberSnapshot.data()?.username)) fail(409, "This member must choose a valid username before being appointed.");
+      if (agentSnapshot.exists) fail(409, "This member is already a referral agent.");
+      const currentTotal = Number.isSafeInteger(counterSnapshot.data()?.total)
+        ? counterSnapshot.data().total
+        : 0;
+      if (new Date().getUTCFullYear() === 2026 && currentTotal >= referralAgentLimit2026) {
+        fail(409, "The 2026 referral agent batch is full.");
+      }
+      const nextSerial = currentTotal + 1;
+      code = referralAgentCode(nextSerial);
+      const codeRef = codeCollection.doc(code);
+      const existingCode = await transaction.get(codeRef);
+      if (existingCode.exists) fail(409, "A referral code collision occurred. Please retry.");
+      const username = memberSnapshot.data()?.username || "";
+      const assignedAtMs = Date.now();
+      transaction.create(agentRef, {
+        uid,
+        username,
+        code,
+        serial: nextSerial,
+        assignedAtMs,
+        assignedBy: identity.uid,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+      transaction.create(codeRef, { uid, username, serial: nextSerial, createdAt: FieldValue.serverTimestamp() });
+      transaction.set(counterRef, { total: nextSerial, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      transaction.create(notification, {
+        title: "You are now a referral agent",
+        message: `Congratulations, @${username}! Your unique referral code is ${code}. Share it with people who have not yet made an approved deposit.`,
+        kind: "referral",
+        metadata: { code, serial: nextSerial },
+        readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return send(201, { uid, code });
   }
   if (pathname === "/api/users/ensure" && method === "POST") {
     const { identity } = await authenticate(request, { allowBanned: true });
@@ -661,6 +1011,7 @@ async function routeApi(request, response, url, corsHeaders) {
     if (!validateAmount(body.amountCents)) fail(400, "Enter a valid deposit amount.");
     if (body.amountCents < 1_000) fail(400, "The minimum deposit is $10.00.");
     if (typeof body.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.requestId)) fail(400, "Invalid deposit request ID.");
+    if (typeof body.quoteId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.quoteId)) fail(400, "Request a current crypto conversion before submitting your deposit.");
 
     let receipt = null;
     if (body.uploadRequestId || body.publicId) {
@@ -670,6 +1021,7 @@ async function routeApi(request, response, url, corsHeaders) {
     const receiptCollection = db.collection("receipts");
     const newReceiptRef = receiptCollection.doc();
     const requestKeyRef = userRef(identity.uid).collection("depositRequestKeys").doc(body.requestId);
+    const quoteRef = db.collection("depositQuotes").doc(body.quoteId);
     const notification = notificationRef(identity.uid);
     const networkDetails = getNetwork(asset, network);
     const admins = await db.collection("users").where("role", "==", "admin").limit(100).get();
@@ -705,6 +1057,18 @@ async function routeApi(request, response, url, corsHeaders) {
         }
         return;
       }
+      const quoteSnapshot = await transaction.get(quoteRef);
+      const quote = quoteSnapshot.data();
+      if (!quoteSnapshot.exists
+        || quote.uid !== identity.uid
+        || quote.asset !== asset
+        || quote.network !== network
+        || quote.amountCents !== body.amountCents
+        || !Number.isSafeInteger(quote.expiresAtMs)
+        || quote.expiresAtMs <= Date.now()
+        || quote.usedAt !== null) {
+        fail(409, "Your crypto conversion has expired or changed. Request a fresh quote and try again.");
+      }
       receiptId = newReceiptRef.id;
       transaction.create(newReceiptRef, {
         requestId: body.requestId,
@@ -718,6 +1082,10 @@ async function routeApi(request, response, url, corsHeaders) {
         network,
         networkName: networkDetails.name,
         walletAddress: wallet.address,
+        expectedCryptoAmount: quote.cryptoAmount,
+        cryptoPriceUsd: quote.priceUsd,
+        cryptoQuotedAtMs: quote.quotedAtMs,
+        cryptoQuoteExpiresAtMs: quote.expiresAtMs,
         cloudinaryUrl: receipt?.cloudinaryUrl || null,
         receipt: receipt || null,
         status: "pending",
@@ -726,6 +1094,7 @@ async function routeApi(request, response, url, corsHeaders) {
         reviewedAt: null,
         reviewedBy: null,
       });
+      transaction.update(quoteRef, { usedAt: FieldValue.serverTimestamp() });
       transaction.create(requestKeyRef, {
         receiptId: newReceiptRef.id,
         createdAt: FieldValue.serverTimestamp(),
@@ -802,6 +1171,10 @@ async function routeApi(request, response, url, corsHeaders) {
         principalCents: body.amountCents,
         currentAmountCents: body.amountCents,
         dailyOpeningCents: body.amountCents,
+        currentAmountUsd: body.amountCents / 100,
+        dailyOpeningUsd: body.amountCents / 100,
+        dailyGrowthRate: 0.195,
+        dailyFeeRate: 0.04,
         dailyEarnedCents: 0,
         totalProfitCents: 0,
         totalFeeCents: 0,
@@ -820,7 +1193,7 @@ async function routeApi(request, response, url, corsHeaders) {
       });
       transaction.create(userNotification, {
         title: "Five-day profit cycle started",
-        message: "Your five-day cycle has started. Hourly earnings are calculated from a 5.3% daily rate; a 1% fee is deducted from the post-growth amount at the end of each day.",
+        message: "Your five-day cycle has started. Hourly earnings use a 19.5% daily growth rate; a 4% fee is deducted from the post-growth amount at the end of each day.",
         kind: "profit",
         metadata: { cycleId, status: "active" },
         readAt: null,
@@ -1063,17 +1436,22 @@ async function routeApi(request, response, url, corsHeaders) {
     const receiptRef = db.collection("receipts").doc(reviewMatch[1]);
     const profileRef = userRef(uid);
     const notification = notificationRef(uid);
+    const referralRef = db.collection("referrals").doc(uid);
+    const referralRewardRef = db.collection("referralRewards").doc(`deposit_${uid}`);
     let creditedBalanceCents = 0;
     let firstDepositBonusCents = 0;
+    let referralRewardCents = 0;
     let firstDepositBonusReceiptId = null;
     const status = reviewMatch[2] === "approve" ? "approved" : "rejected";
     let notificationMessage = (typeof body.message === "string" ? body.message.trim().slice(0, 300) : "")
       || "Your deposit request was not approved. Please contact customer support.";
 
     await db.runTransaction(async (transaction) => {
-      const [receiptSnapshot, profileSnapshot] = await Promise.all([
+      const [receiptSnapshot, profileSnapshot, referralSnapshot, referralRewardSnapshot] = await Promise.all([
         transaction.get(receiptRef),
         transaction.get(profileRef),
+        transaction.get(referralRef),
+        transaction.get(referralRewardRef),
       ]);
       const receipt = receiptSnapshot.data();
       const profile = profileSnapshot.data();
@@ -1111,16 +1489,74 @@ async function routeApi(request, response, url, corsHeaders) {
           : 0;
         creditedBalanceCents = currentBalance + receipt.amountCents + firstDepositBonusCents;
         if (!Number.isSafeInteger(creditedBalanceCents)) fail(409, "The balance would exceed the supported limit.");
+        let referralAgentRef = null;
+        let referralAgentSnapshot = null;
+        const referral = referralSnapshot.data();
+        if (referralSnapshot.exists && referralRewardSnapshot.exists === false && referral.firstDepositRewardPaid !== true) {
+          if (typeof referral.agentUid !== "string" || referral.agentUid === uid) {
+            fail(409, "The referral record is invalid. Please contact support before approving this deposit.");
+          }
+          referralAgentRef = userRef(referral.agentUid);
+          const referralAgentRecordRef = db.collection("referralAgents").doc(referral.agentUid);
+          const [agentProfile, agentRecord] = await Promise.all([
+            transaction.get(referralAgentRef),
+            transaction.get(referralAgentRecordRef),
+          ]);
+          if (!agentProfile.exists || !agentRecord.exists) fail(409, "The referral agent account could not be verified.");
+          referralAgentSnapshot = agentProfile;
+          referralRewardCents = 10_000;
+        }
         const bonusMessage = firstDepositBonusCents > 0
           ? ` Your first-deposit gift bonus of $${(firstDepositBonusCents / 100).toFixed(2)} USD (20%) was added too.`
           : "";
-        notificationMessage = `$${(receipt.amountCents / 100).toFixed(2)} USD deposit approved.${bonusMessage} A total of $${((receipt.amountCents + firstDepositBonusCents) / 100).toFixed(2)} USD was credited to your Triplex balance. Visit Profit progress to choose an amount and start your five-day profit cycle.`;
+        notificationMessage = `$${(receipt.amountCents / 100).toFixed(2)} USD deposit approved.${bonusMessage} A total of $${((receipt.amountCents + firstDepositBonusCents) / 100).toFixed(2)} USD was credited to your TRIPLEAPEX balance. Visit Profit progress to choose an amount and start your five-day profit cycle.`;
         transaction.update(profileRef, {
           balanceCents: creditedBalanceCents,
           firstDepositBonusClaimed: true,
           firstDepositBonusReceiptId,
           updatedAt: FieldValue.serverTimestamp(),
         });
+        if (referralRewardCents > 0 && referralAgentRef && referralAgentSnapshot) {
+          const agentBalanceCents = Number.isSafeInteger(referralAgentSnapshot.data()?.balanceCents)
+            ? referralAgentSnapshot.data().balanceCents
+            : 0;
+          const updatedAgentBalance = agentBalanceCents + referralRewardCents;
+          if (!Number.isSafeInteger(updatedAgentBalance)) fail(409, "The referral reward exceeds the supported balance.");
+          const agentUid = referral.agentUid;
+          const agentUsername = referralAgentSnapshot.data()?.username || referral.agentUsername || "referral agent";
+          transaction.update(referralAgentRef, { balanceCents: updatedAgentBalance, updatedAt: FieldValue.serverTimestamp() });
+          transaction.update(referralRef, {
+            firstDepositRewardPaid: true,
+            depositRewardCents: referralRewardCents,
+            depositedAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          transaction.create(referralRewardRef, {
+            kind: "first_deposit",
+            uid,
+            agentUid,
+            receiptId: receiptSnapshot.id,
+            amountCents: referralRewardCents,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          transaction.create(referralAgentRef.collection("profitActivity").doc(`referral_deposit_${uid}`), {
+            uid: agentUid,
+            type: "referral",
+            amountCents: referralRewardCents,
+            detail: `First-deposit reward · @${profile.username || "member"}`,
+            referredUid: uid,
+            receiptId: receiptSnapshot.id,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          transaction.create(notificationRef(agentUid), {
+            title: "Referral deposit reward credited",
+            message: `Your $100.00 USD reward for @${profile.username || "your referred member"}'s approved first deposit was added to your available balance.`,
+            kind: "referral",
+            metadata: { uid, receiptId: receiptSnapshot.id, amountCents: referralRewardCents },
+            readAt: null,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
       }
       transaction.update(receiptRef, {
         status,
@@ -1157,6 +1593,7 @@ async function routeApi(request, response, url, corsHeaders) {
       status,
       balanceCents: creditedBalanceCents,
       firstDepositBonusCents,
+      referralRewardCents,
     });
   }
   if (pathname === "/api/admin/members" && method === "GET") {
@@ -1196,7 +1633,7 @@ async function routeApi(request, response, url, corsHeaders) {
       if (body.isBanned) {
         transaction.create(notification, {
           title: "Account access restricted",
-          message: "Your account has been permanently banned for a possible fraudulent payment or violation of Triplex rules. Contact support if you believe this is a mistake.",
+          message: "Your account has been permanently banned for a possible fraudulent payment or violation of TRIPLEAPEX rules. Contact support if you believe this is a mistake.",
           kind: "account",
           metadata: { isBanned: true },
           readAt: null,
@@ -1347,13 +1784,13 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, "0.0.0.0", () => {
-  console.log(`Triplex server listening on port ${port}`);
+  console.log(`TRIPLEAPEX server listening on port ${port}`);
   void processDueProfitCycles();
   const profitCycleTimer = setInterval(() => void processDueProfitCycles(), 60_000);
   profitCycleTimer.unref();
 });
 
 server.on("error", (error) => {
-  console.error("Triplex server failed to start:", error);
+  console.error("TRIPLEAPEX server failed to start:", error);
   process.exitCode = 1;
 });
