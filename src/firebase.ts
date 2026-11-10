@@ -297,8 +297,12 @@ export function subscribeProfitCycle(
         dayNumber: Number.isSafeInteger(data.dayNumber) ? data.dayNumber : 1,
         hourInDay: Number.isSafeInteger(data.hourInDay) ? data.hourInDay : 0,
         startedAtMs: Number.isSafeInteger(data.startedAtMs) ? data.startedAtMs : 0,
-        dailyGrowthRate: typeof data.dailyGrowthRate === "number" && Number.isFinite(data.dailyGrowthRate) ? data.dailyGrowthRate : 0.053,
-        dailyFeeRate: typeof data.dailyFeeRate === "number" && Number.isFinite(data.dailyFeeRate) ? data.dailyFeeRate : 0.01,
+        dailyGrowthRate: data.status === "active"
+          ? 0.195
+          : typeof data.dailyGrowthRate === "number" && Number.isFinite(data.dailyGrowthRate) ? data.dailyGrowthRate : 0.195,
+        dailyFeeRate: data.status === "active"
+          ? 0.04
+          : typeof data.dailyFeeRate === "number" && Number.isFinite(data.dailyFeeRate) ? data.dailyFeeRate : 0.04,
       };
     }).sort((left, right) => right.startedAtMs - left.startedAtMs);
     onCycle(items.find((item) => item.status === "active") || items[0] || null);

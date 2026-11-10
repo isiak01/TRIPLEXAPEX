@@ -17,6 +17,8 @@ const maxJsonBytes = 128 * 1024;
 const maxReceiptBytes = 10 * 1024 * 1024;
 const profitCycleHourMs = 60 * 60 * 1000;
 const profitCycleHours = 5 * 24;
+const profitDailyGrowthRate = 0.195;
+const profitDailyFeeRate = 0.04;
 const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 let firebaseReady = false;
 let auth = null;
@@ -85,18 +87,20 @@ const depositAssets = [
   { code: "TRX", name: "TRON", symbol: "T", networks: [{ code: "TRON", name: "Tron (TRC20)" }] },
   { code: "SUI", name: "Sui", symbol: "S", networks: [{ code: "SUI", name: "Sui" }] },
 ];
-const coinGeckoIds = {
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  BNB: "binancecoin",
-  SOL: "solana",
-  GRAM: "gram",
-  TRX: "tron",
-  SUI: "sui",
-};
+const cryptoPriceAsOf = "2026-11-10";
+const cryptoPricesUsd = Object.freeze({
+  BTC: 74_247,
+  ETH: 2_093.65,
+  BNB: 686.57,
+  SOL: 84.66,
+  GRAM: 0.00051999,
+  TRX: 0.318855,
+  SUI: 0.831491,
+  USDT: 1,
+  USDC: 1,
+});
+const withdrawalNetworks = depositAssets.find((asset) => asset.code === "USDT")?.networks || [];
 const referralAgentLimit2026 = 86;
-let cryptoPriceCache = { fetchedAtMs: 0, prices: {} };
-
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const cloudApiKey = process.env.CLOUDINARY_API_KEY;
 const cloudApiSecret = process.env.CLOUDINARY_API_SECRET;
@@ -292,42 +296,6 @@ function referralAgentCode(serial) {
   return `T-R-I-P-L-E-A-P-E-X-A-G-E-N-T-${digits}`;
 }
 
-async function getCryptoPrices() {
-  if (Date.now() - cryptoPriceCache.fetchedAtMs < 30_000
-    && Object.keys(coinGeckoIds).every((asset) => Number.isFinite(cryptoPriceCache.prices[asset]))) {
-    return cryptoPriceCache.prices;
-  }
-  const ids = [...new Set(Object.values(coinGeckoIds))].join(",");
-  let response;
-  try {
-    response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(ids)}&vs_currencies=usd`, {
-      headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(8_000),
-    });
-  } catch (error) {
-    console.error("Could not retrieve live cryptocurrency prices.", error);
-    fail(503, "Live cryptocurrency prices are temporarily unavailable. Please try again shortly.");
-  }
-  if (!response.ok) {
-    console.error(`Cryptocurrency price service returned HTTP ${response.status}.`);
-    fail(503, "Live cryptocurrency prices are temporarily unavailable. Please try again shortly.");
-  }
-  let payload;
-  try {
-    payload = await response.json();
-  } catch (error) {
-    console.error("Cryptocurrency price service returned invalid JSON.", error);
-    fail(503, "Live cryptocurrency prices could not be verified. Please try again shortly.");
-  }
-  const prices = Object.fromEntries(Object.entries(coinGeckoIds).map(([asset, id]) => [asset, payload?.[id]?.usd]));
-  if (Object.values(prices).some((price) => typeof price !== "number" || !Number.isFinite(price) || price <= 0)) {
-    console.error("Cryptocurrency price service did not return every supported deposit asset.");
-    fail(503, "A live price is unavailable for this cryptocurrency. Please try again shortly.");
-  }
-  cryptoPriceCache = { fetchedAtMs: Date.now(), prices };
-  return prices;
-}
-
 function cloudinaryReady() {
   if (!cloudinaryConfigured) fail(503, "Receipt uploads are temporarily unavailable.");
   if (!uploadPreset) fail(503, "Receipt uploads are not configured yet.");
@@ -512,11 +480,8 @@ async function processProfitCycle(cycleRef) {
       : (Number.isSafeInteger(cycle.currentAmountCents) ? cycle.currentAmountCents : cycle.dailyOpeningCents) / 100;
     let totalProfitCents = Number.isSafeInteger(cycle.totalProfitCents) ? cycle.totalProfitCents : 0;
     let totalFeeCents = Number.isSafeInteger(cycle.totalFeeCents) ? cycle.totalFeeCents : 0;
-    const growthRate = Number.isFinite(cycle.dailyGrowthRate) ? cycle.dailyGrowthRate : 0.053;
-    const feeRate = Number.isFinite(cycle.dailyFeeRate) ? cycle.dailyFeeRate : 0.01;
-    if (growthRate <= 0 || growthRate >= 1 || feeRate < 0 || feeRate >= 1) {
-      throw new Error(`Profit cycle ${cycleRef.id} has invalid rates.`);
-    }
+    const growthRate = profitDailyGrowthRate;
+    const feeRate = profitDailyFeeRate;
     let status = "active";
     let completed = false;
 
@@ -642,9 +607,9 @@ async function processProfitCycle(cycleRef) {
       hourInDay,
       dailyOpeningCents: Math.round(dailyOpeningUsd * 100),
       dailyOpeningUsd,
-      dailyEarnedCents,
       dailyGrowthRate: growthRate,
       dailyFeeRate: feeRate,
+      dailyEarnedCents,
       lastAccruedAtMs,
       completedAt: completed ? FieldValue.serverTimestamp() : null,
       updatedAt: FieldValue.serverTimestamp(),
@@ -700,8 +665,8 @@ async function routeApi(request, response, url, corsHeaders) {
     const network = typeof body.network === "string" ? body.network.toUpperCase() : "";
     if (!getNetwork(asset, network) || !getWallet(asset, network)) fail(400, "Select a configured deposit network before requesting a quote.");
     if (!validateAmount(body.amountCents) || body.amountCents < 1_000) fail(400, "Enter a deposit amount of at least $10.00.");
-    const priceUsd = asset === "USDT" || asset === "USDC" ? 1 : (await getCryptoPrices())[asset];
-    if (!Number.isFinite(priceUsd) || priceUsd <= 0) fail(503, "A live price is unavailable for this cryptocurrency.");
+    const priceUsd = cryptoPricesUsd[asset];
+    if (!Number.isFinite(priceUsd) || priceUsd <= 0) fail(400, "A fixed USD price is not configured for this cryptocurrency.");
     const decimalPlaces = asset === "USDT" || asset === "USDC" ? 2 : 8;
     const cryptoAmount = ((body.amountCents / 100) / priceUsd).toFixed(decimalPlaces);
     const quoteId = randomUUID();
@@ -713,20 +678,23 @@ async function routeApi(request, response, url, corsHeaders) {
       network,
       amountCents: body.amountCents,
       priceUsd,
+      priceAsOf: cryptoPriceAsOf,
       cryptoAmount,
       quotedAtMs,
       expiresAtMs,
       usedAt: null,
       createdAt: FieldValue.serverTimestamp(),
     });
-    return send(200, { quoteId, asset, amountCents: body.amountCents, priceUsd, cryptoAmount, quotedAtMs, expiresAtMs });
+    return send(200, { quoteId, asset, amountCents: body.amountCents, priceUsd, priceAsOf: cryptoPriceAsOf, cryptoAmount, quotedAtMs, expiresAtMs });
   }
   if (method === "GET" && pathname === "/api/withdrawals/options") {
+    const usdtAsset = depositAssets.find((asset) => asset.code === "USDT");
+    if (!usdtAsset) throw new Error("USDT withdrawal configuration is missing.");
     return send(200, {
-      assets: depositAssets.map((asset) => ({
-        ...asset,
-        networks: asset.networks.map((network) => ({ ...network, available: true })),
-      })),
+      assets: [{
+        ...usdtAsset,
+        networks: withdrawalNetworks.map((network) => ({ ...network, available: true })),
+      }],
     });
   }
   if (method === "GET" && pathname === "/api/referrals/me") {
@@ -1173,8 +1141,8 @@ async function routeApi(request, response, url, corsHeaders) {
         dailyOpeningCents: body.amountCents,
         currentAmountUsd: body.amountCents / 100,
         dailyOpeningUsd: body.amountCents / 100,
-        dailyGrowthRate: 0.195,
-        dailyFeeRate: 0.04,
+        dailyGrowthRate: profitDailyGrowthRate,
+        dailyFeeRate: profitDailyFeeRate,
         dailyEarnedCents: 0,
         totalProfitCents: 0,
         totalFeeCents: 0,
@@ -1211,7 +1179,9 @@ async function routeApi(request, response, url, corsHeaders) {
     const asset = typeof body.asset === "string" ? body.asset.toUpperCase() : "";
     const network = typeof body.network === "string" ? body.network.toUpperCase() : "";
     const walletAddress = typeof body.walletAddress === "string" ? body.walletAddress.trim() : "";
-    if (!getNetwork(asset, network)) fail(400, "Select a supported cryptocurrency and network.");
+    if (asset !== "USDT" || !withdrawalNetworks.some((item) => item.code === network)) {
+      fail(400, "Withdrawals are available in USDT on a supported USDT network.");
+    }
     if (!validateAmount(body.amountCents) || body.amountCents < 2_000) fail(400, "The minimum withdrawal is $20.00.");
     if (typeof body.requestId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.requestId)) fail(400, "Invalid withdrawal request ID.");
     if (walletAddress.length < 20 || walletAddress.length > 200 || /\s/.test(walletAddress)) {

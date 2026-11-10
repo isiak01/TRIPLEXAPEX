@@ -49,6 +49,7 @@ interface DepositQuote {
   amountCents: number;
   cryptoAmount: string;
   priceUsd: number;
+  priceAsOf: string;
   quotedAtMs: number;
   expiresAtMs: number;
 }
@@ -861,6 +862,17 @@ function cryptoIcon(code: string) {
   return icons[code] || `<span>${escapeHtml(code.slice(0, 1))}</span>`;
 }
 
+function withdrawalNetworkIcon(code: string) {
+  const iconCode: Record<string, string> = {
+    ETHEREUM: "ETH",
+    BSC: "BNB",
+    TRON: "TRX",
+    SOLANA: "SOL",
+    TON: "GRAM",
+  };
+  return cryptoIcon(iconCode[code] || "USDT");
+}
+
 async function showDepositFlow() {
   if (!currentUser) {
     showNotice("Log in to deposit", "Create an account or log in before starting a deposit.");
@@ -973,8 +985,7 @@ async function showDepositFlow() {
       <input class="receipt-file" id="receipt-file" type="file" accept="image/jpeg,image/png,image/webp,application/pdf">
       <p class="receipt-file-note" id="receipt-file-note">Upload a screenshot or PDF, up to 10 MB.</p>
       <div class="deposit-receipt-preview" id="deposit-receipt-preview" hidden></div>
-      <button class="button button-primary deposit-complete" id="deposit-complete" type="button">Complete payment</button>
-      <div class="deposit-confirmation" id="deposit-confirmation" hidden></div>`;
+      <button class="button button-primary deposit-complete" id="deposit-complete" type="button" disabled>Complete payment</button>`;
     content.querySelector<HTMLButtonElement>(".deposit-back")!.addEventListener("click", () => renderNetworks(asset));
     content.querySelector<HTMLButtonElement>("#copy-address")!.addEventListener("click", async () => {
       try {
@@ -995,11 +1006,31 @@ async function showDepositFlow() {
     const bonusEstimate = content.querySelector<HTMLElement>("#deposit-bonus-estimate");
     let activeQuote: DepositQuote | null = null;
     let quoteTimer = 0;
+    let quoteExpiryTimer = 0;
     let quoteRequest = 0;
+    let quoteFailed = false;
+    let receiptUploadInProgress = false;
+    let depositSubmissionInProgress = false;
+    const completeButton = content.querySelector<HTMLButtonElement>("#deposit-complete")!;
+    const updateCompleteButton = () => {
+      const hasValidAmount = amountToCents(depositAmountInput.value) >= 1_000;
+      const hasCurrentQuote = activeQuote !== null
+        && activeQuote.amountCents === amountToCents(depositAmountInput.value)
+        && activeQuote.expiresAtMs > Date.now();
+      const receiptReady = !fileInput.files?.length || uploadedReceipt !== null;
+      completeButton.disabled = receiptUploadInProgress || depositSubmissionInProgress
+        || !hasValidAmount || (!hasCurrentQuote && !quoteFailed) || !receiptReady;
+      completeButton.textContent = receiptUploadInProgress
+        ? "Uploading receipt…"
+        : depositSubmissionInProgress ? "Submitting request…" : quoteFailed ? "Retry conversion" : "Complete payment";
+    };
     const updateDepositQuote = () => {
       const requestNumber = ++quoteRequest;
       activeQuote = null;
+      quoteFailed = false;
       window.clearTimeout(quoteTimer);
+      window.clearTimeout(quoteExpiryTimer);
+      updateCompleteButton();
       const amountCents = amountToCents(depositAmountInput.value);
       if (amountCents < 1_000) {
         depositQuote.classList.remove("is-error");
@@ -1007,19 +1038,26 @@ async function showDepositFlow() {
         return;
       }
       depositQuote.classList.remove("is-error");
-      depositQuote.textContent = "Fetching a live USD conversion…";
+      depositQuote.textContent = "Calculating with the fixed USD rate…";
       quoteTimer = window.setTimeout(() => {
-        void apiRequest<DepositQuote & { asset: string; cryptoAmount: string }>("/api/deposits/quote", {
+        void apiRequest<DepositQuote>("/api/deposits/quote", {
           method: "POST",
           body: { asset: asset.code, network: network.code, amountCents },
         }).then((quote) => {
           if (requestNumber !== quoteRequest || !document.body.contains(depositQuote)) return;
           activeQuote = quote;
-          depositQuote.innerHTML = `<strong>Send approximately ${escapeHtml(quote.cryptoAmount)} ${escapeHtml(asset.code)}</strong><span>Rate: 1 ${escapeHtml(asset.code)} = $${formatUsdRate(quote.priceUsd)} USD · Quote valid for 5 minutes. Wallet network fees may vary.</span>`;
+          depositQuote.innerHTML = `<strong>Send approximately ${escapeHtml(quote.cryptoAmount)} ${escapeHtml(asset.code)}</strong><span>Fixed rate (as of ${escapeHtml(quote.priceAsOf)}): 1 ${escapeHtml(asset.code)} = $${formatUsdRate(quote.priceUsd)} USD. Wallet network fees may vary.</span>`;
+          updateCompleteButton();
+          quoteExpiryTimer = window.setTimeout(() => {
+            if (requestNumber !== quoteRequest || !document.body.contains(depositQuote)) return;
+            updateDepositQuote();
+          }, Math.max(0, quote.expiresAtMs - Date.now()));
         }).catch((error: unknown) => {
           if (requestNumber !== quoteRequest || !document.body.contains(depositQuote)) return;
+          quoteFailed = true;
           depositQuote.classList.add("is-error");
-          depositQuote.textContent = `Live conversion unavailable: ${errorMessage(error)}. Please try again before submitting.`;
+          depositQuote.textContent = `Fixed-rate conversion unavailable: ${errorMessage(error)}. Please try again.`;
+          updateCompleteButton();
         });
       }, 350);
     };
@@ -1042,13 +1080,17 @@ async function showDepositFlow() {
       if (!file) {
         fileNote.textContent = "Upload a screenshot or PDF, up to 10 MB.";
         preview.hidden = true;
+        updateCompleteButton();
         return;
       }
       if (!["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type) || file.size > 10 * 1024 * 1024) {
         fileInput.value = "";
         fileNote.textContent = "Choose a JPG, PNG, WebP, or PDF file up to 10 MB.";
+        updateCompleteButton();
         return;
       }
+      receiptUploadInProgress = true;
+      updateCompleteButton();
       fileNote.textContent = "Uploading securely…";
       preview.hidden = false;
       preview.textContent = `Uploading ${file.name}…`;
@@ -1063,46 +1105,51 @@ async function showDepositFlow() {
         preview.textContent = errorMessage(error);
       } finally {
         fileInput.disabled = false;
+        receiptUploadInProgress = false;
+        updateCompleteButton();
       }
     });
 
-    const completeButton = content.querySelector<HTMLButtonElement>("#deposit-complete")!;
     completeButton.addEventListener("click", () => {
       const amountCents = amountToCents(depositAmountInput.value);
-      if (amountCents < 1_000) {
-        showNotice("Minimum deposit is $10.00", "Enter a deposit amount of at least $10.00.");
-        return;
-      }
-      if (!activeQuote || activeQuote.amountCents !== amountCents || activeQuote.expiresAtMs <= Date.now()) {
+      const quote = activeQuote;
+      if (completeButton.disabled) return;
+      if (!quote) {
         updateDepositQuote();
-        showNotice("Refreshing your crypto quote", "Please wait for a current conversion before continuing.");
         return;
       }
-      if (fileInput.files?.length && !uploadedReceipt) {
-        showNotice("Receipt upload in progress", "Wait for the selected receipt to finish uploading before continuing.");
-        return;
-      }
-      const confirmation = content.querySelector<HTMLDivElement>("#deposit-confirmation")!;
-      confirmation.hidden = false;
-      confirmation.innerHTML = `
-        <div class="deposit-fraud-warning"><strong>WARNING</strong><span>Payment receipts are checked strictly. Submitting a fake payment receipt may result in your account being permanently banned.</span></div>
-        <label class="deposit-agree"><input id="deposit-agree" type="checkbox"><span>I confirm that this payment is legitimate and the details are correct.</span></label>
-        <button class="button button-primary deposit-confirm" id="deposit-confirm" type="button" disabled>Confirm payment</button>`;
-      const agree = confirmation.querySelector<HTMLInputElement>("#deposit-agree")!;
-      const confirm = confirmation.querySelector<HTMLButtonElement>("#deposit-confirm")!;
-      agree.addEventListener("change", () => { confirm.disabled = !agree.checked; });
+      const confirmationOverlay = document.createElement("div");
+      confirmationOverlay.className = "notice-overlay deposit-confirm-overlay";
+      confirmationOverlay.innerHTML = `
+        <section class="notice-card deposit-final-card" role="dialog" aria-modal="true" aria-labelledby="deposit-final-title">
+          <button class="notice-close" type="button" aria-label="Go back to deposit">×</button>
+          <span class="deposit-final-icon" aria-hidden="true">!</span>
+          <p class="eyebrow">Please review before submitting</p>
+          <h2 id="deposit-final-title">Confirm your payment</h2>
+          <p class="deposit-final-amount">${formatCurrency(amountCents)} USD · ${escapeHtml(quote.cryptoAmount)} ${escapeHtml(asset.code)}</p>
+          <div class="deposit-fraud-warning"><strong>IMPORTANT PAYMENT WARNING</strong><span>Only continue after you have sent the exact amount shown to the address above using the selected network. Payment receipts are checked strictly. Fake or misleading receipts may result in a permanent account ban.</span></div>
+          <p class="deposit-final-error" id="deposit-final-error" role="alert" hidden></p>
+          <div class="deposit-final-actions"><button class="button button-secondary" type="button" data-deposit-back>Go back</button><button class="button button-primary" type="button" data-deposit-confirm>I understand — submit</button></div>
+        </section>`;
+      const closeConfirmation = () => confirmationOverlay.remove();
+      confirmationOverlay.querySelector<HTMLButtonElement>(".notice-close")!.addEventListener("click", closeConfirmation);
+      confirmationOverlay.querySelector<HTMLButtonElement>("[data-deposit-back]")!.addEventListener("click", closeConfirmation);
+      document.body.append(confirmationOverlay);
+      const confirm = confirmationOverlay.querySelector<HTMLButtonElement>("[data-deposit-confirm]")!;
+      const errorMessageElement = confirmationOverlay.querySelector<HTMLParagraphElement>("#deposit-final-error")!;
       confirm.addEventListener("click", async () => {
-        if (!agree.checked) return;
-        const quote = activeQuote;
-        if (!quote || quote.amountCents !== amountToCents(depositAmountInput.value) || quote.expiresAtMs <= Date.now()) {
-          confirm.disabled = false;
-          confirm.textContent = "Confirm payment";
+        if (depositSubmissionInProgress) return;
+        const currentQuote = activeQuote;
+        if (!currentQuote || currentQuote.amountCents !== amountToCents(depositAmountInput.value) || currentQuote.expiresAtMs <= Date.now()) {
+          closeConfirmation();
           updateDepositQuote();
-          showNotice("Refreshing your crypto quote", "The amount changed or the quote expired. Wait for a current conversion before confirming.");
           return;
         }
+        depositSubmissionInProgress = true;
+        updateCompleteButton();
         confirm.disabled = true;
-        confirm.textContent = "Submitting…";
+        confirm.textContent = "Submitting request…";
+        confirmationOverlay.querySelectorAll<HTMLButtonElement>(".notice-close, [data-deposit-back]").forEach((button) => { button.disabled = true; });
         try {
           await apiRequest("/api/deposits/requests", {
             method: "POST",
@@ -1111,21 +1158,27 @@ async function showDepositFlow() {
               network: network.code,
               amountCents,
               requestId,
-              quoteId: quote.quoteId,
+              quoteId: currentQuote.quoteId,
               ...(uploadedReceipt ? { uploadRequestId: uploadedReceipt.requestId, publicId: uploadedReceipt.publicId } : {}),
             },
           });
+          confirmationOverlay.remove();
           overlay.remove();
           showNotice(
             "Payment request received",
             "Your payment request is under review. Your USD balance will be updated once approved. Reviews can take up to 24 hours; contact customer support if your payment is delayed.",
           );
         } catch (error) {
+          depositSubmissionInProgress = false;
+          updateCompleteButton();
           confirm.disabled = false;
-          confirm.textContent = "Confirm payment";
-          showNotice("Could not submit payment request", errorMessage(error));
+          confirm.textContent = "I understand — submit";
+          confirmationOverlay.querySelectorAll<HTMLButtonElement>(".notice-close, [data-deposit-back]").forEach((button) => { button.disabled = false; });
+          errorMessageElement.hidden = false;
+          errorMessageElement.textContent = `Could not submit payment request: ${errorMessage(error)}`;
         }
       });
+      confirm.focus();
     });
   };
 
@@ -1415,7 +1468,7 @@ async function refreshReferralAccount() {
       ? `<section class="referral-status-card"><span class="referral-status-icon" aria-hidden="true">✓</span><div><p class="eyebrow">Successfully referred</p><h2>@${escapeHtml(data.referredBy.username)}</h2><p>Your referral agent. This account can only be referred once.</p></div></section>`
       : "";
     const applyPanel = !data.agent && !data.referredBy
-      ? `<section class="referral-apply-card"><p class="eyebrow">Have a referral code?</p><h2>Connect with your referral agent</h2><p>Enter a code shared by an appointed TRIPLEAPEX referral agent. Codes can only be used once per account and before your first approved deposit.</p>${data.hasApprovedDeposit ? '<p class="referral-inline-message is-error">Referral codes must be added before your first approved deposit.</p>' : `<form class="referral-code-form" id="referral-code-form"><label for="referral-code-input">Referral agent code</label><div class="referral-code-entry"><input id="referral-code-input" name="code" maxlength="45" placeholder="T-R-I-P-L-E-A-P-E-X-A-G-E-N-T-0-0-1" autocomplete="off" required><button class="button button-primary" type="submit">Verify code</button></div><p class="referral-inline-message" id="referral-code-message" role="status" aria-live="polite"></p></form>`}</section>`
+      ? `<section class="referral-apply-card"><p class="eyebrow">Have a referral code?</p><h2>Connect with your referral agent</h2><p>Enter a code shared by an appointed TRIPLEAPEX referral agent. Codes can only be used once per account and before your first approved deposit.</p>${data.hasApprovedDeposit ? '<p class="referral-inline-message is-error">Referral codes must be added before your first approved deposit.</p>' : `<form class="referral-code-form" id="referral-code-form"><label for="referral-code-input">Referral agent code</label><div class="referral-code-entry"><input id="referral-code-input" name="code" maxlength="45" placeholder="Paste referral code here and check" autocomplete="off" required><button class="button button-primary" type="submit">Verify code</button></div><p class="referral-inline-message" id="referral-code-message" role="status" aria-live="polite"></p></form>`}</section>`
       : "";
     const members = data.agent
       ? `<section class="referral-members-card"><div class="referral-section-heading"><div><p class="eyebrow">Your network</p><h2>Referred members</h2></div><span>${data.referrals.length} member${data.referrals.length === 1 ? "" : "s"}</span></div>${data.referrals.length ? `<div class="referral-member-list">${data.referrals.map((member) => `<article class="referral-member-row"><div class="member-avatar">${escapeHtml((member.username || "U").slice(0, 2).toUpperCase())}</div><div class="member-info"><strong>@${escapeHtml(member.username || "member")}</strong><span>Referred ${escapeHtml(new Date(member.referredAtMs).toLocaleDateString())}</span><small>${member.hasDeposited ? "First deposit approved" : "Awaiting first approved deposit"} · ${member.completedCycles} completed cycle${member.completedCycles === 1 ? "" : "s"}</small></div><div class="referral-member-rewards">${member.depositRewardCents ? `<strong>+${formatCurrency(member.depositRewardCents)}</strong><small>deposit reward</small>` : ""}${member.totalCommissionCents ? `<strong>+${formatCurrency(member.totalCommissionCents)}</strong><small>cycle rewards</small>` : ""}${!member.depositRewardCents && !member.totalCommissionCents ? `<span class="referral-pending">Pending</span>` : ""}</div></article>`).join("")}</div>` : '<div class="empty-state"><p>Share your code to see your referred members here.</p></div>'}</section>`
@@ -2008,15 +2061,17 @@ async function showWithdrawalFlow() {
   let assets: DepositAsset[];
   try {
     const options = await apiRequest<{ assets: DepositAsset[] }>("/api/withdrawals/options");
-    assets = options.assets.filter((asset) => asset.networks.length > 0);
+    assets = options.assets.filter((asset) => asset.code === "USDT" && asset.networks.some((network) => network.available));
   } catch (error) {
     showNotice("Withdrawal options unavailable", errorMessage(error));
     return;
   }
   if (!assets.length) {
-    showNotice("Withdrawals unavailable", "No configured cryptocurrency networks are available. Please contact customer support.");
+    showNotice("Withdrawals unavailable", "No USDT withdrawal networks are configured. Please contact customer support.");
     return;
   }
+  const usdtNetworks = assets[0].networks.filter((network) => network.available);
+  const initialNetwork = usdtNetworks[0]?.code || "";
 
   document.querySelector<HTMLElement>("#notice-overlay")?.remove();
   const overlay = document.createElement("div");
@@ -2027,18 +2082,18 @@ async function showWithdrawalFlow() {
       <button class="notice-close" type="button" aria-label="Dismiss withdrawal panel">×</button>
       ${brandMark("notice-logo")}
       <p class="eyebrow">Withdrawal request</p>
-      <h2 id="withdrawal-title">Withdraw to your crypto wallet</h2>
-      <p class="transfer-explainer">Minimum withdrawal: $20.00 USD. Your request is in USD; an admin will determine and record the crypto amount sent. The requested USD amount is reserved while your payment is reviewed and manually processed.</p>
+      <h2 id="withdrawal-title">Withdraw to your USDT wallet</h2>
+      <p class="transfer-explainer">Minimum withdrawal: $20.00 USD. Withdrawals are paid in USDT at a fixed 1 USD = 1 USDT before any wallet or network fees. Your USD amount is reserved while an admin reviews the request.</p>
       <form id="withdrawal-form">
-        <label for="withdrawal-asset">Cryptocurrency</label>
-        <select id="withdrawal-asset" required>${assets.map((asset) => `<option value="${escapeHtml(asset.code)}">${escapeHtml(asset.name)} (${escapeHtml(asset.code)})</option>`).join("")}</select>
-        <label for="withdrawal-network">Network</label>
-        <select id="withdrawal-network" required></select>
+        <div class="withdrawal-asset-card"><span class="crypto-symbol crypto-usdt" aria-hidden="true">${cryptoIcon("USDT")}</span><span><strong>USDT · Tether</strong><small>USD-pegged stablecoin</small></span><b>1 USD = 1 USDT</b></div>
+        <span class="withdrawal-field-label">Choose your USDT network</span>
+        <input id="withdrawal-network" type="hidden" value="${escapeHtml(initialNetwork)}">
+        <div class="withdrawal-network-grid" role="group" aria-label="USDT withdrawal network">${usdtNetworks.map((network) => `<button class="withdrawal-network-choice" type="button" data-withdrawal-network="${escapeHtml(network.code)}" aria-pressed="${network.code === initialNetwork}"><span class="withdrawal-network-icon">${withdrawalNetworkIcon(network.code)}</span><span><strong>${escapeHtml(network.name)}</strong><small>${escapeHtml(network.code)}</small></span><span class="withdrawal-network-check" aria-hidden="true">✓</span></button>`).join("")}</div>
         <label for="withdrawal-amount">Amount to withdraw (USD)</label>
         <div class="amount-field"><span aria-hidden="true">$</span><input id="withdrawal-amount" name="amount" type="number" min="20.00" max="${(balanceCents / 100).toFixed(2)}" step="0.01" inputmode="decimal" placeholder="20.00" required></div>
-        <label for="withdrawal-address">Destination wallet address</label>
-        <input class="withdrawal-address" id="withdrawal-address" name="walletAddress" type="text" autocomplete="off" minlength="20" maxlength="200" placeholder="Paste your wallet address" required>
-        <div class="deposit-warning withdrawal-warning"><strong>Check the address and network carefully</strong><span>Select the network that matches your wallet exactly and verify every character in the destination address. Crypto sent to a wrong address or network may not be recoverable.</span></div>
+        <label for="withdrawal-address">USDT wallet address</label>
+        <input class="withdrawal-address" id="withdrawal-address" name="walletAddress" type="text" autocomplete="off" minlength="20" maxlength="200" placeholder="Paste your USDT wallet address" required>
+        <div class="deposit-warning withdrawal-warning"><strong>Match the wallet address to the selected network</strong><span>Choose the same USDT network supported by your wallet and double-check the full destination address. Crypto sent to the wrong address or network may not be recoverable.</span></div>
         <p class="withdrawal-balance">Available balance: <strong>${formatCurrency(balanceCents)} USD</strong></p>
         <button class="button button-primary transfer-submit" id="withdrawal-submit" type="submit" disabled>Submit withdrawal request</button>
       </form>
@@ -2048,36 +2103,38 @@ async function showWithdrawalFlow() {
   document.body.append(overlay);
 
   const form = overlay.querySelector<HTMLFormElement>("#withdrawal-form")!;
-  const assetSelect = overlay.querySelector<HTMLSelectElement>("#withdrawal-asset")!;
-  const networkSelect = overlay.querySelector<HTMLSelectElement>("#withdrawal-network")!;
+  const networkInput = overlay.querySelector<HTMLInputElement>("#withdrawal-network")!;
   const amountInput = overlay.querySelector<HTMLInputElement>("#withdrawal-amount")!;
   const addressInput = overlay.querySelector<HTMLInputElement>("#withdrawal-address")!;
   const submit = overlay.querySelector<HTMLButtonElement>("#withdrawal-submit")!;
-  const fillNetworks = () => {
-    const selected = assets.find((asset) => asset.code === assetSelect.value);
-    networkSelect.innerHTML = (selected?.networks || []).map((network) =>
-      `<option value="${escapeHtml(network.code)}">${escapeHtml(network.name)}</option>`).join("");
-    validate();
-  };
   const validate = () => {
     const amountCents = amountToCents(amountInput.value);
     const address = addressInput.value.trim();
     submit.disabled = !currentUser || amountCents < 2_000 || amountCents > balanceCents
-      || address.length < 20 || address.length > 200 || /\s/.test(address) || !networkSelect.value;
+      || address.length < 20 || address.length > 200 || /\s/.test(address) || !networkInput.value;
   };
-  assetSelect.addEventListener("change", fillNetworks);
+  overlay.querySelectorAll<HTMLButtonElement>("[data-withdrawal-network]").forEach((button) => {
+    button.addEventListener("click", () => {
+      networkInput.value = button.dataset.withdrawalNetwork || "";
+      overlay.querySelectorAll<HTMLButtonElement>("[data-withdrawal-network]").forEach((choice) => {
+        choice.setAttribute("aria-pressed", String(choice === button));
+      });
+      validate();
+    });
+  });
   amountInput.addEventListener("input", validate);
   addressInput.addEventListener("input", validate);
-  fillNetworks();
+  validate();
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     validate();
     if (submit.disabled || !currentUser) return;
     const amountCents = amountToCents(amountInput.value);
-    const asset = assetSelect.value;
-    const network = networkSelect.value;
+    const asset = "USDT";
+    const network = networkInput.value;
+    const networkName = usdtNetworks.find((item) => item.code === network)?.name || network;
     const walletAddress = addressInput.value.trim();
-    if (!window.confirm(`Submit a $${(amountCents / 100).toFixed(2)} USD withdrawal in ${asset} on ${networkSelect.selectedOptions[0]?.textContent} to:\n\n${walletAddress}\n\nThe amount will be reserved from your balance while the request is reviewed.`)) return;
+    if (!window.confirm(`Submit a $${(amountCents / 100).toFixed(2)} USD withdrawal in ${asset} on ${networkName} to:\n\n${walletAddress}\n\nThe amount will be reserved from your balance while the request is reviewed.`)) return;
     submit.disabled = true;
     submit.textContent = "Submitting request…";
     try {
