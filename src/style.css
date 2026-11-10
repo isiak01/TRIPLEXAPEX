@@ -42,8 +42,9 @@ a { color: inherit; }
 .app-shell { display: grid; grid-template-columns: 252px minmax(0,1fr); min-height: 100vh; }
 .sidebar { position: sticky; top: 0; z-index: 20; display: flex; flex-direction: column; height: 100vh; padding: 22px 18px 18px; background: var(--surface); border-right: 1px solid var(--line); }
 .brand { display: flex; align-items: center; min-height: 68px; padding: 0 5px; }
-.brand img { display: block; width: 88px; height: 68px; object-fit: contain; transition: transform .22s ease; }
-.brand:hover img { transform: scale(1.035); }
+.brand-mark { display: block; }
+.brand .brand-mark { width: 56px; height: 56px; transition: transform .22s ease; }
+.brand:hover .brand-mark { transform: scale(1.035); }
 .brand-mobile, .mobile-header { display: none; }
 .side-account { display: flex; align-items: center; gap: 11px; margin: 8px 2px 0; padding: 14px 10px; background: color-mix(in srgb, var(--page) 75%, var(--surface)); border: 1px solid var(--line); border-radius: 12px; }
 .side-account strong, .side-account small { display: block; max-width: 146px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -157,7 +158,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .auth-back:hover { color: var(--green-dark); }
 .auth-card { width: min(100%, 438px); padding: 32px clamp(23px,6vw,42px); background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); animation: rise-in .5s both; }
 .auth-brand { display: flex; justify-content: center; margin: -5px 0 21px; }
-.auth-brand img { width: 112px; height: 70px; object-fit: contain; }
+.auth-brand .brand-mark { width: 64px; height: 64px; }
 .auth-card h1 { font-size: 1.8rem; }
 .auth-copy { margin: 11px 0 24px; color: var(--muted); font-size: .87rem; line-height: 1.65; }
 .google-button { display: flex; align-items: center; justify-content: center; gap: 12px; width: 100%; min-height: 52px; padding: 0 16px; color: #27312b; background: white; border: 1px solid #dfe4df; border-radius: 9px; cursor: pointer; font-size: .88rem; font-weight: 700; transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
@@ -192,7 +193,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 @keyframes card-pop { from { opacity: 0; transform: translateY(11px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 .notice-close { position: absolute; top: 12px; right: 13px; display: grid; width: 31px; height: 31px; padding: 0; color: #fff; background: #d9474d; border: 0; border-radius: 50%; cursor: pointer; font-size: 1.35rem; line-height: 1; place-items: center; transition: background .15s ease, transform .15s ease; }
 .notice-close:hover { background: #bd3038; transform: rotate(90deg); }
-.notice-logo { display: block; width: 86px; height: 54px; margin: 0 auto 13px; object-fit: contain; }
+.notice-logo { display: block; width: 48px; height: 48px; margin: 0 auto 13px; }
 .notice-mark { display: grid; width: 32px; height: 32px; margin: 0 auto 11px; color: var(--green-dark); background: var(--green-soft); border-radius: 50%; font-family: Georgia,serif; font-size: 1rem; font-weight: 700; place-items: center; }
 .notice-card h2 { margin: 0 0 8px; font-size: 1.18rem; letter-spacing: -.035em; }
 .notice-card > p:not(.eyebrow) { margin: 0; color: var(--muted); font-size: .84rem; line-height: 1.65; }
@@ -326,7 +327,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .button-banned-support { width: 100%; color: #970c1d; background: white; }
 .banned-card > .button-secondary { width: 100%; margin-top: 9px; color: white; background: transparent; border-color: rgba(255,255,255,.45); }
 .install-prompt { position: fixed; z-index: 80; right: 24px; bottom: 92px; display: flex; align-items: center; gap: 12px; width: min(390px,calc(100vw - 32px)); padding: 14px 45px 14px 14px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 15px; box-shadow: 0 16px 48px rgba(0,0,0,.18); animation: card-pop .24s cubic-bezier(.2,.8,.2,1) both; }
-.install-prompt-logo { flex: 0 0 auto; width: 42px; height: 42px; object-fit: contain; }
+.install-prompt-logo { flex: 0 0 auto; width: 38px; height: 38px; }
 .install-prompt-copy { display: grid; flex: 1; gap: 3px; min-width: 0; }
 .install-prompt-copy strong { font-size: .84rem; }
 .install-prompt-copy span { color: var(--muted); font-size: .72rem; line-height: 1.35; }
@@ -383,7 +384,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
 .progress-start-card p { margin-top: 5px; }
 .cycle-formula-note { margin: 14px 0 0; color: var(--muted); font-size: .72rem; line-height: 1.65; }
 .boot-screen { display: grid; align-content: center; justify-items: center; gap: 15px; min-height: 100vh; padding: 30px; color: var(--ink); background: radial-gradient(ellipse at 50% 40%,rgba(7,139,73,.09),transparent 31rem),var(--page); text-align: center; }
-.boot-logo { width: 132px; height: 84px; object-fit: contain; animation: logo-breathe 2.3s ease-in-out infinite; }
+.boot-logo { width: 88px; height: 88px; animation: logo-breathe 2.3s ease-in-out infinite; }
 @keyframes logo-breathe { 0%,100% { transform: scale(1); opacity: .92; } 50% { transform: scale(1.035); opacity: 1; } }
 .boot-screen > p { margin: 3px 0 0; font-family: Manrope,sans-serif; font-size: 1.08rem; font-weight: 650; }
 .boot-caption { color: var(--muted); font-size: .63rem; font-weight: 700; letter-spacing: .17em; }
@@ -400,7 +401,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
   .app-shell { display: block; }
   .mobile-header { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; min-height: 69px; padding: 5px 17px; background: var(--surface); border-bottom: 1px solid var(--line); }
   .brand-mobile { display: flex; min-height: 54px; padding: 0; }
-  .brand-mobile img { width: 72px; height: 54px; }
+  .brand-mobile .brand-mark { width: 48px; height: 48px; }
   .mobile-controls { display: flex; align-items: center; gap: 9px; margin-left: auto; }
   .mobile-controls .theme-label { display: none; }
   .notification-wrap.desktop { display: none; }
@@ -430,7 +431,7 @@ h1 { margin: 0; font-size: clamp(1.75rem,3vw,2.25rem); letter-spacing: -.05em; l
   .contact-card .button { width: 100%; }
   .whatsapp-float { right: 16px; bottom: 17px; width: 51px; height: 51px; }
   .install-prompt { right: 12px; bottom: 78px; gap: 9px; padding-left: 11px; }
-  .install-prompt-logo { width: 36px; height: 36px; }
+  .install-prompt-logo { width: 34px; height: 34px; }
   .install-prompt-copy span { font-size: .68rem; }
   .install-button { padding: 0 10px; }
   .admin-shortcuts { grid-template-columns: 1fr; }

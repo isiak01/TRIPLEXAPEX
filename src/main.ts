@@ -79,7 +79,6 @@ interface AssistantMessage {
   time: Date;
 }
 
-const logoUrl = "/tripleapex.png";
 const whatsappUrl = "https://wa.me/447950484434";
 const route = window.location.pathname.split("/").pop()?.toLowerCase() ?? "";
 const pageRoutes: Record<string, string> = {
@@ -151,11 +150,17 @@ if ("serviceWorker" in navigator) {
 function showBoot(message = "TRIPLEAPEX is loading") {
   appRoot.innerHTML = `
     <main class="boot-screen" aria-live="polite">
-      <img src="${logoUrl}" alt="TRIPLEAPEX" class="boot-logo">
+      ${brandMark("boot-logo")}
       <span class="loader-orbit" aria-hidden="true"></span>
       <p>${message}</p>
       <span class="boot-caption">SECURE ACCOUNT ACCESS</span>
     </main>`;
+}
+
+function brandMark(className = "") {
+  return `<svg class="brand-mark ${className}" viewBox="0 0 512 512" aria-hidden="true" focusable="false">
+    <use href="/app-icon.svg#tripleapex-mark"></use>
+  </svg>`;
 }
 
 function frame(content: string, activePage: string, username: string | null) {
@@ -165,7 +170,7 @@ function frame(content: string, activePage: string, username: string | null) {
       <div class="mobile-scrim" id="mobile-scrim"></div>
       <header class="mobile-header">
         <a class="brand brand-mobile" href="index.html" aria-label="TRIPLEAPEX dashboard">
-          <img src="${logoUrl}" alt="TRIPLEAPEX">
+          ${brandMark()}
         </a>
         <div class="mobile-controls">
           ${notificationButton("mobile")}
@@ -177,7 +182,7 @@ function frame(content: string, activePage: string, username: string | null) {
       </header>
       <aside class="sidebar" id="sidebar" aria-label="Main navigation">
         <a class="brand brand-desktop" href="index.html" aria-label="TRIPLEAPEX dashboard">
-          <img src="${logoUrl}" alt="TRIPLEAPEX">
+          ${brandMark()}
         </a>
         <div class="side-account">
           <span class="side-avatar">${username ? escapeHtml(username.slice(0, 2).toUpperCase()) : "TP"}</span>
@@ -1176,7 +1181,7 @@ function renderAuth(kind: "login" | "signup") {
     <main class="auth-page">
       <a class="auth-back" href="index.html">← <span>Back to dashboard</span></a>
       <section class="auth-card">
-        <a class="auth-brand" href="index.html"><img src="${logoUrl}" alt="TRIPLEAPEX"></a>
+        <a class="auth-brand" href="index.html" aria-label="TRIPLEAPEX home">${brandMark()}</a>
         <p class="eyebrow">${signup ? "Get started" : "Welcome back"}</p>
         <h1>${signup ? "Create your account" : "Log in to TRIPLEAPEX"}</h1>
         <p class="auth-copy">${signup ? "Use your Google account to get started, then choose your username." : "Continue securely with your Google account."}</p>
@@ -1213,7 +1218,7 @@ function renderUsernameSetup(user: User) {
     <main class="auth-page">
       <a class="auth-back" href="index.html">← <span>Back to dashboard</span></a>
       <section class="auth-card username-card">
-        <a class="auth-brand" href="index.html"><img src="${logoUrl}" alt="TRIPLEAPEX"></a>
+        <a class="auth-brand" href="index.html" aria-label="TRIPLEAPEX home">${brandMark()}</a>
         <p class="eyebrow">One last step</p>
         <h1>Choose your username</h1>
         <p class="auth-copy">Your username will identify you on TRIPLEAPEX. Use 3–20 letters, numbers, or underscores.</p>
@@ -1802,7 +1807,7 @@ function showNotice(title: string, message: string) {
   overlay.innerHTML = `
     <section class="notice-card" role="dialog" aria-modal="true" aria-labelledby="notice-title" aria-describedby="notice-message">
       <button class="notice-close" type="button" aria-label="Dismiss notification">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
+      ${brandMark("notice-logo")}
       <span class="notice-mark" aria-hidden="true">i</span>
       <h2 id="notice-title"></h2>
       <p id="notice-message"></p>
@@ -1830,7 +1835,7 @@ function showTransferCard() {
   overlay.innerHTML = `
     <section class="notice-card transfer-card" role="dialog" aria-modal="true" aria-labelledby="transfer-title">
       <button class="notice-close" type="button" aria-label="Dismiss transfer panel">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
+      ${brandMark("notice-logo")}
       <p class="eyebrow">Transfer</p>
       <h2 id="transfer-title">Send to a TRIPLEAPEX user</h2>
       <p class="transfer-explainer">The amount will be transferred to the selected user. Recheck the username carefully before continuing.</p>
@@ -1937,7 +1942,7 @@ function showProfitStartFlow() {
   overlay.innerHTML = `
     <section class="notice-card transfer-card" role="dialog" aria-modal="true" aria-labelledby="profit-start-title">
       <button class="notice-close" type="button" aria-label="Dismiss cycle form">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
+      ${brandMark("notice-logo")}
       <p class="eyebrow">Five-day profit cycle</p>
       <h2 id="profit-start-title">Choose an amount to grow</h2>
       <p class="transfer-explainer">The selected amount is reserved for five days. Earnings use 19.5% daily growth and are credited hourly; a 4% fee is deducted from the post-growth amount each day. Withdrawals and transfers are paused until the cycle completes.</p>
@@ -2020,7 +2025,7 @@ async function showWithdrawalFlow() {
   overlay.innerHTML = `
     <section class="notice-card transfer-card withdrawal-card" role="dialog" aria-modal="true" aria-labelledby="withdrawal-title">
       <button class="notice-close" type="button" aria-label="Dismiss withdrawal panel">×</button>
-      <img class="notice-logo" src="${logoUrl}" alt="TRIPLEAPEX">
+      ${brandMark("notice-logo")}
       <p class="eyebrow">Withdrawal request</p>
       <h2 id="withdrawal-title">Withdraw to your crypto wallet</h2>
       <p class="transfer-explainer">Minimum withdrawal: $20.00 USD. Your request is in USD; an admin will determine and record the crypto amount sent. The requested USD amount is reserved while your payment is reviewed and manually processed.</p>
@@ -2285,7 +2290,7 @@ async function loadAuthenticatedPage(user: User | null) {
 function renderLoadingPage(user: User | null) {
   appRoot.innerHTML = `
     <main class="boot-screen loading-page" aria-live="polite">
-      <img src="${logoUrl}" alt="TRIPLEAPEX" class="boot-logo">
+      ${brandMark("boot-logo")}
       <span class="loader-orbit" aria-hidden="true"></span>
       <p>${user ? "Preparing your account" : "TRIPLEAPEX is loading"}</p>
       <span class="boot-caption">SECURE ACCOUNT ACCESS</span>
@@ -2317,7 +2322,7 @@ function renderInstallPrompt() {
   prompt.className = "install-prompt";
   prompt.setAttribute("aria-label", "Install TRIPLEAPEX");
   prompt.innerHTML = `
-    <img src="${logoUrl}" alt="" class="install-prompt-logo">
+    ${brandMark("install-prompt-logo")}
     <div class="install-prompt-copy"><strong>Install TRIPLEAPEX</strong><span>Keep your account one tap away.</span></div>
     <button class="button button-primary install-button" id="install-app" type="button">Install</button>
     <button class="install-dismiss" id="dismiss-install" type="button" aria-label="Dismiss install prompt">×</button>`;

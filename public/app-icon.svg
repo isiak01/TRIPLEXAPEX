@@ -1,8 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#ffffff"/>
-  <g font-family="Arial,sans-serif" font-size="360" font-weight="700" text-anchor="middle" paint-order="stroke fill" stroke="#d4af37" stroke-width="5">
-    <text x="198" y="350" fill="#17191c">A</text>
-    <text x="314" y="350" fill="#078b49">A</text>
-    <text x="256" y="410" fill="#d71920">A</text>
+  <g id="tripleapex-mark">
+    <rect width="512" height="512" rx="112" fill="#ffffff"/>
+    <g font-family="Arial,sans-serif" font-size="360" font-weight="800" text-anchor="middle" paint-order="stroke fill" stroke="#d4af37" stroke-width="9" stroke-linejoin="round">
+      <text x="190" y="335" fill="#17191c">A</text>
+      <text x="322" y="335" fill="#078b49">A</text>
+      <text x="256" y="418" fill="#d71920">A</text>
+    </g>
   </g>
 </svg>
